@@ -1,0 +1,272 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'none'">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#dff4ff">
+  <meta name="description" content="选择 Pikafish 或 Fairy-Stockfish 练习中国象棋，也可邀请同一局域网的朋友对弈。">
+  <title>NinePalace · 九宫象棋</title>
+  <link rel="manifest" href="./manifest.webmanifest">
+  <link rel="icon" href="./icon-192.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="./styles.css">
+  <link rel="stylesheet" href="./lobby.css">
+  <link rel="stylesheet" href="./match.css">
+</head>
+<body data-view="home">
+  <div class="app-shell">
+    <header class="topbar">
+      <div class="brand" aria-label="NinePalace 九宫">
+        <span class="brand-mark" aria-hidden="true">棋</span>
+        <div><div class="brand-name">NINEPALACE</div><div class="brand-sub">九宫 · 象棋</div></div>
+      </div>
+      <div class="topbar-right"><span class="guest" data-i18n="guest">访客玩家</span><span id="experience-badge" class="local-badge" data-i18n="localBadge">本地练习</span><button id="language-toggle" class="language-toggle" type="button">EN</button><button id="settings-open" class="language-toggle settings-open" type="button" data-i18n-aria="settingsOpen" aria-label="打开设置" title="打开设置">⚙</button></div>
+    </header>
+
+    <main>
+      <section data-screen="home" class="lobby-screen active" data-i18n-aria="lobbyAria" aria-label="游戏大厅">
+        <div class="lobby-scenery" aria-hidden="true"><div class="lobby-palace"></div><span class="lobby-piece"></span></div>
+        <div class="lobby-character-stage">
+          <img id="lobby-character" class="lobby-character-art" src="./assets/ninepalace-red-rook-girl.png" alt="" aria-hidden="true" draggable="false">
+          <div class="lobby-nameplate" aria-live="polite">
+            <span id="lobby-character-role" data-i18n="redRookRole">红方 · 車</span>
+            <strong id="lobby-character-name" data-i18n="redRookName">绯音</strong>
+          </div>
+          <div class="lobby-dialogue"><span class="lobby-dialogue-mark" aria-hidden="true">“</span><p id="lobby-character-quote" data-i18n="redRookQuote">“红方車阵在此，我来替你稳住主线。”</p></div>
+        </div>
+
+        <div class="lobby-menu">
+          <div class="lobby-menu-heading"><h1 data-i18n="lobbyPlay">对弈</h1><span aria-hidden="true">PLAY</span></div>
+          <button class="lobby-start" type="button" data-action="start">
+            <span class="lobby-start-emblem" aria-hidden="true">帥</span>
+            <span class="lobby-start-copy"><small data-i18n="lobbySolo">人机练习</small><strong data-i18n="startGame">开始对局</strong></span>
+            <svg class="lobby-start-arrow" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12h15M13 5l7 7-7 7"/></svg>
+          </button>
+
+          <div class="lobby-friends">
+            <div class="lobby-friends-heading"><span class="lobby-friends-emblem" aria-hidden="true"><i>車</i><i>馬</i></span><h2 data-i18n="lobbyFriends">好友对弈</h2></div>
+            <div class="lobby-friend-actions">
+              <button type="button" data-action="create-room"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg><span data-i18n="createRoom">创建好友房</span></button>
+              <button id="join-room-home" type="button" data-action="join-room"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M13 4h6v16h-6M4 12h10M10 8l4 4-4 4"/></svg><span data-i18n="joinRoom">加入好友房</span></button>
+            </div>
+          </div>
+
+          <nav class="lobby-tools" data-i18n-aria="lobbyTools" aria-label="教学与棋谱">
+            <button type="button" data-action="tutorial"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 6c-3-2-6-2-9-1v14c3-1 6-1 9 1 3-2 6-2 9-1V5c-3-1-6-1-9 1v14M6 9h3M15 9h3M6 13h3M15 13h3"/></svg><span data-i18n="tutorial">新手教学</span></button>
+            <button type="button" data-action="history"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5v5h5M4 10a8 8 0 1 1 1 7M12 7v5l3 2"/></svg><span data-i18n="historyButton">最近棋谱</span></button>
+          </nav>
+          <button id="pwa-install-button" class="lobby-install" type="button" data-i18n="install" hidden>安装 NinePalace</button>
+        </div>
+
+        <div class="lobby-roster" role="group" data-i18n-aria="characterPickerAria" aria-label="选择你的棋友">
+          <div class="lobby-roster-heading"><span data-i18n="characterPickerLabel">同行棋友</span><span aria-hidden="true">COMPANIONS</span></div>
+          <div class="lobby-character-options">
+            <button class="lobby-character-choice" type="button" data-character-id="red-rook" data-i18n-aria="chooseRedRook" aria-label="选择红方車棋友绯音" aria-pressed="true"><span class="lobby-portrait"><img src="./assets/ninepalace-red-rook-girl.png" alt="" draggable="false"></span><span class="lobby-choice-copy"><small data-i18n="redSideShort">红方</small><strong data-i18n="redRookName">绯音</strong></span><span class="lobby-choice-piece team-red" aria-hidden="true">車</span></button>
+            <button class="lobby-character-choice" type="button" data-character-id="red-horse" data-i18n-aria="chooseRedHorse" aria-label="选择红方馬棋友朱羽" aria-pressed="false"><span class="lobby-portrait"><img src="./assets/ninepalace-red-horse-girl.png" alt="" draggable="false"></span><span class="lobby-choice-copy"><small data-i18n="redSideShort">红方</small><strong data-i18n="redHorseName">朱羽</strong></span><span class="lobby-choice-piece team-red" aria-hidden="true">馬</span></button>
+            <button class="lobby-character-choice" type="button" data-character-id="black-rook" data-i18n-aria="chooseBlackRook" aria-label="选择黑方車棋友墨铃" aria-pressed="false"><span class="lobby-portrait"><img src="./assets/ninepalace-black-rook-loli.png" alt="" draggable="false"></span><span class="lobby-choice-copy"><small data-i18n="blackSideShort">黑方</small><strong data-i18n="blackRookName">墨铃</strong></span><span class="lobby-choice-piece team-black" aria-hidden="true">車</span></button>
+            <button class="lobby-character-choice" type="button" data-character-id="black-horse" data-i18n-aria="chooseBlackHorse" aria-label="选择黑方馬棋友玄芽" aria-pressed="false"><span class="lobby-portrait"><img src="./assets/ninepalace-black-horse-loli.png" alt="" draggable="false"></span><span class="lobby-choice-copy"><small data-i18n="blackSideShort">黑方</small><strong data-i18n="blackHorseName">玄芽</strong></span><span class="lobby-choice-piece team-black" aria-hidden="true">馬</span></button>
+          </div>
+        </div>
+      </section>
+
+      <section data-screen="history" class="history-screen" aria-labelledby="history-title">
+        <div class="match-heading">
+          <div><div class="eyebrow" data-i18n="historyEyebrow">Local records</div><h1 id="history-title" data-i18n="historyTitle">最近棋谱</h1></div>
+          <button class="button secondary compact" data-action="home" data-i18n="returnHome">← 返回首页</button>
+        </div>
+        <div id="history-list" class="history-list" aria-live="polite"></div>
+      </section>
+
+      <section data-screen="replay" class="replay-screen" aria-labelledby="replay-title">
+        <div class="match-heading">
+          <div><div class="eyebrow" data-i18n="replayEyebrow">Review · Local record</div><h1 id="replay-title" data-i18n="replayTitle">棋谱回放</h1></div>
+          <button class="button secondary compact" data-action="history" data-i18n="backToHistory">← 返回棋谱</button>
+        </div>
+        <div class="replay-layout">
+          <div class="table-card replay-board-card">
+            <div class="board-frame"><svg id="replay-board" class="board-svg" viewBox="0 0 450 500" role="img" aria-label="棋谱回放棋盘" data-i18n-aria="replayBoardLabel"></svg></div>
+            <div class="board-caption"><span id="replay-current-move">初始局面</span><span id="replay-position" aria-live="polite">0 / 0</span></div>
+            <div class="replay-controls">
+              <button class="button secondary small" data-replay-step="first" data-i18n-aria="replayFirst" aria-label="跳到开局">⏮</button>
+              <button class="button secondary small" data-replay-step="previous" data-i18n-aria="replayPrevious" aria-label="上一步">←</button>
+              <button class="button secondary small" data-replay-step="next" data-i18n-aria="replayNext" aria-label="下一步">→</button>
+              <button class="button secondary small" data-replay-step="last" data-i18n-aria="replayLast" aria-label="跳到结束">⏭</button>
+            </div>
+          </div>
+          <aside class="side-card replay-info">
+            <h2 data-i18n="replayResult">对局结果</h2>
+            <p id="replay-outcome" class="muted"></p>
+            <h2 data-i18n="reviewTitle">逐手复盘</h2>
+            <p class="review-help muted" data-i18n="reviewHelp">Pikafish 会逐手评估并给出推荐着法，结果仅供练习参考。</p>
+            <button id="review-start" class="button primary review-start" type="button" data-i18n="reviewStart">开始逐手复盘</button>
+            <p id="review-progress" class="review-progress" role="status" aria-live="polite" hidden></p>
+            <div id="review-summary" class="review-summary" hidden></div>
+            <div id="review-detail" class="review-detail" hidden></div>
+            <h2 data-i18n="replayMovesTitle">着法</h2>
+            <div id="replay-moves" class="moves-list"></div>
+          </aside>
+        </div>
+      </section>
+
+      <section data-screen="match" class="match-screen" aria-labelledby="match-title">
+        <div class="match-heading">
+          <div><div class="eyebrow" data-i18n="matchEyebrow">Practice · vs Pikafish</div><h1 id="match-title" data-i18n="matchTitle">练习对局</h1></div>
+          <button class="button secondary compact" data-action="home" data-i18n="returnHome">← 返回首页</button>
+        </div>
+        <div class="match-layout">
+          <div class="table-card match-table">
+            <span id="variation-board-badge" class="variation-board-badge" data-i18n="variationMode" hidden>推演中 · 非实战</span>
+            <div class="board-frame"><svg id="game-board" class="board-svg interactive-board" viewBox="0 0 450 500" role="grid" tabindex="0" aria-label="中国象棋棋盘。聚焦棋盘后使用方向键移动焦点，按 Enter 选中或落子" data-i18n-aria="boardInstructions"></svg></div>
+            <span id="turn-label" class="visually-hidden">红方 · 先行</span>
+          </div>
+          <aside class="side-stack">
+            <section class="side-card match-players">
+              <div class="player"><div id="top-avatar" class="avatar engine-avatar" aria-hidden="true">將</div><div><div id="top-player-name" class="player-name">Pikafish</div><div id="top-player-meta" class="player-meta" data-i18n="blackSide">黑方</div></div></div>
+              <div class="player"><div id="bottom-avatar" class="avatar" aria-hidden="true">帥</div><div><div id="bottom-player-name" class="player-name" data-i18n="guest">访客玩家</div><div id="bottom-player-meta" class="player-meta" data-i18n="redSide">红方</div></div></div>
+              <div id="turn-pill" class="clock active-turn">你的回合</div>
+            </section>
+            <section id="companion-card" class="side-card companion-card" data-i18n-aria="redRookAria" aria-label="红方車棋友绯音">
+              <span class="match-companion-art"><img id="companion-portrait" class="companion-portrait" src="./assets/ninepalace-red-rook-girl.png" alt="" aria-hidden="true"></span>
+              <div class="companion-copy">
+                <span class="companion-label" data-i18n="companionLabel">你的软萌棋友</span>
+                <strong id="companion-name" data-i18n="redRookName">绯音</strong>
+                <p id="companion-quote" data-i18n="redRookQuote">红方車阵在此，我来替你稳住主线。</p>
+              </div>
+              <span class="companion-star" aria-hidden="true">✦</span>
+            </section>
+            <section id="friend-room-panel" class="side-card friend-room-panel" hidden>
+              <h2 data-i18n="roomInviteTitle">邀请好友加入</h2>
+              <p class="room-code-label"><span data-i18n="roomCodeLabel">房间码</span> <strong id="room-code-value"></strong></p>
+              <p id="room-panel-status" class="muted room-panel-status"></p>
+              <label class="room-link-label" for="room-invite-link" data-i18n="roomLinkLabel">邀请链接</label>
+              <select id="room-invite-address" class="room-invite-link" hidden data-i18n-aria="roomAddressLabel" aria-label="选择可用的网络地址"></select>
+              <input id="room-invite-link" class="room-invite-link" type="text" readonly>
+              <button id="room-copy-link" class="button secondary small room-copy-link" type="button" data-i18n="copyInviteLink">复制邀请链接</button>
+              <p class="muted room-panel-status" data-i18n="roomNetworkNote">仅限同一局域网或互通的私有网络；应用关闭后房间结束。不要把链接公开到互联网。</p>
+            </section>
+            <section id="lesson-card" class="side-card lesson-card" aria-live="polite" hidden>
+              <div id="lesson-progress" class="lesson-progress">入门教学 · 1 / 3</div>
+              <h2 id="lesson-title">先选中一枚红方棋子</h2>
+              <p id="lesson-copy" class="muted">红方先行。点击棋盘上的红炮 b2，看看它可以走到哪里。</p>
+              <button id="lesson-exit" class="button secondary small">跳过教学</button>
+            </section>
+            <div class="side-card match-status-card">
+              <h2 data-i18n="gameStatus">当前回合</h2>
+              <div class="status"><span class="status-dot"></span><span id="game-status" aria-live="polite">轮到你走（红方）</span></div>
+              <div class="tool-row"><button id="variation-toggle" class="button secondary small" type="button" data-action="variation-toggle" aria-pressed="false" data-i18n="variationStart">推演</button><button id="undo-button" class="button secondary small" data-action="undo" data-i18n="undo">悔棋</button><button id="resign-button" class="button secondary small" data-action="resign" data-i18n="resign">认输</button></div>
+              <button id="retry-button" class="button retry-button" data-action="retry" hidden data-i18n="retryEngine">重试引擎</button>
+            </div>
+            <section id="variation-panel" class="side-card variation-panel" aria-labelledby="variation-title" hidden>
+              <div class="card-heading"><h2 id="variation-title" data-i18n="variationTitle">推演路线</h2><span id="variation-count" class="muted">0 手</span></div>
+              <div class="variation-controls"><button id="variation-back" type="button" data-action="variation-back" data-i18n="variationBack">退一步</button><button id="variation-forward" type="button" data-action="variation-forward" data-i18n="variationForward">重做</button><button id="variation-reset" type="button" data-action="variation-reset" data-i18n="variationReset">重置</button></div>
+              <ol id="variation-line" class="variation-line"></ol>
+              <p class="variation-note" data-i18n="variationHelp">红黑双方都可试走；采用时只提交第一步。</p>
+              <button id="variation-commit" class="button primary" type="button" data-action="variation-commit" data-i18n="variationAdopt" disabled>采用首步</button>
+              <button id="variation-exit" class="variation-exit" type="button" data-action="variation-exit" data-i18n="variationExit">返回实战</button>
+            </section>
+            <div id="live-move-card" class="side-card move-card"><div class="card-heading"><h2 data-i18n="moveHistory">着法记录</h2><span id="move-count" class="muted">0 手</span></div><div id="moves-list" class="moves-list"><p class="empty-moves" data-i18n="waiting">等待开始</p></div></div>
+            <details class="match-help"><summary data-i18n="helpTitle">操作说明</summary><p class="muted" data-i18n="helpText">点击己方棋子查看可走位置；聚焦棋盘后，也可用方向键移动焦点，再按 Enter 选择或落子。</p></details>
+          </aside>
+        </div>
+      </section>
+
+      <section data-screen="result" class="result-screen" aria-labelledby="result-title">
+        <div class="result-board-card">
+          <div class="result-board-heading"><span data-i18n="finalPosition">终局</span><span id="result-final-move"></span></div>
+          <div class="board-frame"><svg id="result-board" class="board-svg" viewBox="0 0 450 500" role="img" data-i18n-aria="finalPosition" aria-label="终局"></svg></div>
+        </div>
+        <div class="result-card">
+          <div id="result-emblem" class="result-emblem" aria-hidden="true">终</div>
+          <div class="eyebrow" data-i18n="resultEyebrow">Game complete · Practice</div>
+          <h1 id="result-title" tabindex="-1">本局结束</h1>
+          <p id="result-reason" class="muted">每一盘棋，都是下一盘的开始。</p>
+          <div id="result-pattern" class="result-pattern" hidden>
+            <span data-i18n="matingPattern">终局杀法</span>
+            <strong id="result-pattern-name"></strong>
+            <p id="result-pattern-description"></p>
+          </div>
+          <div id="result-score" class="result-score"></div>
+          <div class="actions centered">
+            <button id="result-review" class="button secondary" data-action="review-current" data-i18n="reviewThisGame">复盘本局</button>
+            <button class="button primary" data-action="start" data-i18n="playAgain">再来一局</button>
+            <button id="result-share-pgn" class="button secondary" type="button" data-i18n="sharePgn" hidden>复制棋谱</button>
+            <button class="button secondary" data-action="home" data-i18n="returnHome">返回首页</button>
+          </div>
+          <details class="result-records"><summary data-i18n="moveHistory">着法记录</summary><div id="result-moves" class="result-moves"></div></details>
+        </div>
+      </section>
+    </main>
+    <dialog id="finish-dialog" class="finish-dialog" aria-labelledby="finish-title" aria-describedby="finish-description">
+      <div class="finish-rings" aria-hidden="true"></div>
+      <div id="finish-winner" class="finish-winner"></div>
+      <div id="finish-symbols" class="finish-symbols" aria-hidden="true"></div>
+      <h2 id="finish-title"></h2>
+      <p id="finish-description"></p>
+      <form method="dialog"><button class="finish-continue" data-i18n="viewResult" autofocus>查看结果</button></form>
+    </dialog>
+    <dialog id="settings-dialog" class="settings-dialog" aria-labelledby="settings-title">
+      <form method="dialog">
+        <div class="settings-heading">
+          <div><div class="eyebrow" data-i18n="settingsEyebrow">Preferences</div><h2 id="settings-title" data-i18n="settingsTitle">偏好设置</h2></div>
+          <button class="button secondary small" type="submit" data-i18n-aria="closeSettings" aria-label="关闭设置">×</button>
+        </div>
+        <label class="settings-row" for="difficulty-setting">
+          <span><strong data-i18n="difficultyTitle">人机难度</strong><small data-i18n="difficultyHelp">先从入门试试；可随时调整。</small></span>
+          <select id="difficulty-setting" name="difficulty">
+            <option value="beginner" data-i18n="difficultyBeginner">入门</option>
+            <option value="easy" data-i18n="difficultyEasy">轻松</option>
+            <option value="normal" data-i18n="difficultyNormal">标准</option>
+            <option value="strong" data-i18n="difficultyStrong">较强</option>
+          </select>
+        </label>
+        <label class="settings-row" for="engine-setting">
+          <span><strong data-i18n="engineTitle">对弈引擎</strong><small data-i18n="engineHelp">Pikafish 默认；Fairy-Stockfish 使用 CC0 象棋网络，仅对新对局生效。</small></span>
+          <select id="engine-setting" name="engine">
+            <option value="pikafish" data-i18n="enginePikafish">Pikafish（默认）</option>
+            <option value="fairy-stockfish" data-i18n="engineFairy">Fairy-Stockfish（引擎 GPLv3 / 网络 CC0）</option>
+          </select>
+        </label>
+        <label class="settings-row" for="motion-setting">
+          <span><strong data-i18n="motionTitle">动画效果</strong><small data-i18n="motionHelp">系统默认遵循设备的动态效果偏好。</small></span>
+          <select id="motion-setting" name="motion">
+            <option value="system" data-i18n="motionSystem">跟随系统</option>
+            <option value="reduce" data-i18n="motionReduce">减少动画</option>
+            <option value="full" data-i18n="motionFull">完整动画</option>
+          </select>
+        </label>
+        <label class="settings-row" for="sound-toggle">
+          <span><strong data-i18n="soundTitle">落子音效</strong><small data-i18n="soundHelp">默认开启；双方每走一步都会播放轻微的木质落子声，可随时关闭。</small></span>
+          <input id="sound-toggle" type="checkbox">
+        </label>
+        <p class="settings-note" data-i18n="settingsSaved">这些偏好保存在本机。</p>
+      </form>
+    </dialog>
+    <dialog id="room-dialog" class="settings-dialog room-dialog" aria-labelledby="room-dialog-title">
+      <form method="dialog">
+        <div class="settings-heading">
+          <div><div class="eyebrow" data-i18n="roomEyebrow">好友对局</div><h2 id="room-dialog-title" data-i18n="joinRoomTitle">加入好友房</h2></div>
+          <button class="button secondary small" type="submit" data-i18n-aria="closeSettings" aria-label="关闭设置">×</button>
+        </div>
+        <label class="room-code-entry" for="room-code-input">
+          <span data-i18n="roomCodeLabel">房间码</span>
+          <input id="room-code-input" type="text" inputmode="text" autocomplete="off" maxlength="6" pattern="[A-Za-z0-9]{6}" required>
+        </label>
+        <p class="muted" data-i18n="roomJoinHelp">输入朋友分享的 6 位房间码。加入后此设备会保存重连凭据。</p>
+        <button class="button primary" id="room-join-submit" type="button" data-i18n="joinRoom">加入好友房</button>
+      </form>
+    </dialog>
+    <footer data-i18n="footer">NINEPALACE · 本地对弈验证版 · v0.1</footer>
+    <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+  </div>
+  <script src="./browser-bootstrap.js"></script>
+  <script src="../vendor/xiangqi-js/xiangqi.js"></script>
+  <script src="./browser-expose.js"></script>
+  <script src="./browser-client.js"></script>
+  <script src="./i18n.js"></script>
+  <script src="./character-select.js"></script>
+  <script src="./settings.js"></script>
+  <script src="./chinese-notation.js"></script>
+  <script src="./renderer.js"></script>
+  <script src="./pwa-register.js"></script>
+</body>
+</html>

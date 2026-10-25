@@ -1,0 +1,28 @@
+node_modules/
+dist/
+dist-*/
+out/
+*.log
+
+# Downloaded engines, weights, and local binary experiments.
+*.exe
+*.nnue
+*.bin
+*.7z
+*.zip
+
+# Local settings and credentials.
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Retired character designs and intermediate art.
+desktop/assets/*-draft.png
+desktop/assets/ninepalace-mascot-fish.png
+desktop/assets/ninepalace-xiangqi-girl.png
+desktop/assets/ninepalace-rook-character.png
+desktop/assets/ninepalace-cannon-character.png
+desktop/assets/ninepalace-pawn-character.png
+desktop/assets/ninepalace-lobby-character.png

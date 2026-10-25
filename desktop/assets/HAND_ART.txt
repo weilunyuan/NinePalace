@@ -1,0 +1,47 @@
+NinePalace painted hand assets
+Created: 2026-10-26
+Mode: built-in image_gen (not CLI/API fallback).
+User approved the natural Japanese-anime human-hand preview before these atlases were produced.
+Original character portraits were used as costume references and remain unchanged.
+Each PNG contains four complete painted poses in a 2x2 layout: reach, close, hold, release.
+Files:
+- desktop/assets/ninepalace-hand-red-rook.png
+- desktop/assets/ninepalace-hand-red-horse.png
+- desktop/assets/ninepalace-hand-black-rook.png
+- desktop/assets/ninepalace-hand-black-horse.png
+
+Exact final prompts:
+
+Generation mode: built-in image_gen; transparent PNG atlases; original character portraits unchanged.
+
+=== red-rook ===
+Use case: identity-preserve / precise-object-edit / transparent game sprite.
+Image 1 is the master human-hand animation atlas. Image 2 is the specific character costume reference. Produce ONE corrected character-specific atlas. Keep the existing warm red sleeve and white cuff with two red stripes. Keep the same slender natural hand. This is a careful cleanup pass, not a redesign.
+
+Preserve the SAME four natural HUMAN right-hand poses, exact hand registration, camera angle, wrist angle and hand scale as Image 1, in the SAME strict 2x2 grid of equal square cells. Top-left reaching/open, top-right closing fingers, bottom-left gently secured pinch grip, bottom-right release/open. The thumb and index grip an IMAGINARY small flat Chinese chess disc; the space between fingers is EMPTY/TRANSPARENT. Do not paint any disc, board, tabletop, text, labels or frame borders. The sleeve continues toward each cell's upper-right corner. Keep every hand inside its own quadrant with clean transparent gutters.
+
+Critical image-quality correction: preserve actual alpha transparency; remove ALL stray red/yellow/white speckles and color halos outside the hand and sleeve silhouette. The outside background must be fully transparent, including between the fingers. Smooth anti-aliased natural skin boundaries, no color-fringe matte and no baked checkerboard. Retain the delicate Japanese-anime painterly human anatomy, organic knuckles, short natural nails and soft skin shading. No mechanical shapes, no joint segments, no claws, no simplified vector art. Match the approved soft hand art. Do not enlarge or reposition individual cells. Output a high-resolution square transparent PNG, ideally 2048x2048.
+
+=== red-horse ===
+Use case: identity-preserve / precise-object-edit / transparent game sprite.
+Image 1 is the master human-hand animation atlas. Image 2 is the specific character costume reference. Produce ONE corrected character-specific atlas. Make the costume match Image 2's brighter crimson-red uniform and ivory cuff with red edge stripes. The hand is a little more compact and softly rounded, still anatomically natural. Do not add gloves or jewelry.
+
+Preserve the SAME four natural HUMAN right-hand poses, exact hand registration, camera angle, wrist angle and hand scale as Image 1, in the SAME strict 2x2 grid of equal square cells. Top-left reaching/open, top-right closing fingers, bottom-left gently secured pinch grip, bottom-right release/open. The thumb and index grip an IMAGINARY small flat Chinese chess disc; the space between fingers is EMPTY/TRANSPARENT. Do not paint any disc, board, tabletop, text, labels or frame borders. The sleeve continues toward each cell's upper-right corner. Keep every hand inside its own quadrant with clean transparent gutters.
+
+Critical image-quality correction: preserve actual alpha transparency; remove ALL stray red/yellow/white speckles and color halos outside the hand and sleeve silhouette. The outside background must be fully transparent, including between the fingers. Smooth anti-aliased natural skin boundaries, no color-fringe matte and no baked checkerboard. Retain the delicate Japanese-anime painterly human anatomy, organic knuckles, short natural nails and soft skin shading. No mechanical shapes, no joint segments, no claws, no simplified vector art. Match the approved soft hand art. Do not enlarge or reposition individual cells. Output a high-resolution square transparent PNG, ideally 2048x2048.
+
+=== black-rook ===
+Use case: identity-preserve / precise-object-edit / transparent game sprite.
+Image 1 is the master human-hand animation atlas. Image 2 is the specific character costume reference. Produce ONE corrected character-specific atlas. Make the costume match Image 2: a charcoal-black uniform sleeve, ivory-white cuff with muted blue-gray edge stripes and a small subtle geometric diamond cuff motif. Natural fair skin, slightly compact hand, short normal nails. No gloves, metal or armor.
+
+Preserve the SAME four natural HUMAN right-hand poses, exact hand registration, camera angle, wrist angle and hand scale as Image 1, in the SAME strict 2x2 grid of equal square cells. Top-left reaching/open, top-right closing fingers, bottom-left gently secured pinch grip, bottom-right release/open. The thumb and index grip an IMAGINARY small flat Chinese chess disc; the space between fingers is EMPTY/TRANSPARENT. Do not paint any disc, board, tabletop, text, labels or frame borders. The sleeve continues toward each cell's upper-right corner. Keep every hand inside its own quadrant with clean transparent gutters.
+
+Critical image-quality correction: preserve actual alpha transparency; remove ALL stray red/yellow/white speckles and color halos outside the hand and sleeve silhouette. The outside background must be fully transparent, including between the fingers. Smooth anti-aliased natural skin boundaries, no color-fringe matte and no baked checkerboard. Retain the delicate Japanese-anime painterly human anatomy, organic knuckles, short natural nails and soft skin shading. No mechanical shapes, no joint segments, no claws, no simplified vector art. Match the approved soft hand art. Do not enlarge or reposition individual cells. Output a high-resolution square transparent PNG, ideally 2048x2048.
+
+=== black-horse ===
+Use case: identity-preserve / precise-object-edit / transparent game sprite.
+Image 1 is the master human-hand animation atlas. Image 2 is the specific character costume reference. Produce ONE corrected character-specific atlas. Make the costume match Image 2: a dark charcoal/navy uniform sleeve and creamy white cuff with deep navy blue trim, preserving the soft cool fair skin and naturally rounded slender fingers. No gloves, metal or armor.
+
+Preserve the SAME four natural HUMAN right-hand poses, exact hand registration, camera angle, wrist angle and hand scale as Image 1, in the SAME strict 2x2 grid of equal square cells. Top-left reaching/open, top-right closing fingers, bottom-left gently secured pinch grip, bottom-right release/open. The thumb and index grip an IMAGINARY small flat Chinese chess disc; the space between fingers is EMPTY/TRANSPARENT. Do not paint any disc, board, tabletop, text, labels or frame borders. The sleeve continues toward each cell's upper-right corner. Keep every hand inside its own quadrant with clean transparent gutters.
+
+Critical image-quality correction: preserve actual alpha transparency; remove ALL stray red/yellow/white speckles and color halos outside the hand and sleeve silhouette. The outside background must be fully transparent, including between the fingers. Smooth anti-aliased natural skin boundaries, no color-fringe matte and no baked checkerboard. Retain the delicate Japanese-anime painterly human anatomy, organic knuckles, short natural nails and soft skin shading. No mechanical shapes, no joint segments, no claws, no simplified vector art. Match the approved soft hand art. Do not enlarge or reposition individual cells. Output a high-resolution square transparent PNG, ideally 2048x2048.

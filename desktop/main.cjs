@@ -1,0 +1,994 @@
+const { app, BrowserWindow, ipcMain } = require("electron");
+const os = require("node:os");
+const path = require("node:path");
+const { Xiangqi } = require("../vendor/xiangqi-js/xiangqi.js");
+const { resolveGameResult } = require("./game-rules.cjs");
+const { reviewGame, terminalEvaluation } = require("./game-analysis.cjs");
+const {
+  DEFAULT_ENGINE_ID,
+  engineDefinition,
+  normalizeEngineId,
+} = require("./engine-config.cjs");
+const { UciEngine } = require("./uci-engine.cjs");
+const {
+  DEFAULT_DIFFICULTY,
+  normalizeDifficulty,
+} = require("./difficulty.cjs");
+const { createWebServer } = require("./web-server.cjs");
+const { createFriendRooms, normalizeRoomCode } = require("./friend-rooms.cjs");
+
+const HUMAN = "r";
+const ENGINE = "b";
+let mainWindow = null;
+let game = new Xiangqi();
+let phase = "home";
+let status = "开始一盘本地人机对局";
+let thinking = false;
+let outcome = null;
+let engineFailure = false;
+let engine = null;
+let analysisEngine = null;
+let analysisQueue = Promise.resolve();
+let currentDifficulty = DEFAULT_DIFFICULTY;
+let currentEngineId = DEFAULT_ENGINE_ID;
+let gameGeneration = 0;
+let webServer = null;
+let friendRoomServer = null;
+let activeDesktopRoom = null;
+let activeDesktopRoomUnsubscribe = null;
+const webStateListeners = new Set();
+const friendRooms = createFriendRooms();
+
+function getLanInviteUrls(port) {
+  const addresses = Object.values(os.networkInterfaces()).flatMap((interfaces) => interfaces || [])
+    .filter((entry) => entry.family === "IPv4" && !entry.internal)
+    .map((entry) => entry.address);
+  const unique = [...new Set(addresses)];
+  if (!unique.length) unique.push("127.0.0.1");
+  return unique.map((address) => `http://${address}:${port}`);
+}
+
+function createWebApi(server = null, listenHost = "127.0.0.1") {
+  return {
+    getState: () => snapshot(),
+    startGame: (engineId) => startGame(engineId),
+    getLegalMoves,
+    submitMove,
+    analyzeGame: (moves, onProgress, engineId) => analyzeSavedGame(moves, onProgress, engineId),
+    undo: undoGame,
+    resign: resignGame,
+    retryEngine,
+    subscribe(listener) {
+      webStateListeners.add(listener);
+      return () => webStateListeners.delete(listener);
+    },
+    getInviteUrls(request) {
+      const port = server?.address()?.port;
+      if (!port) return [];
+      if (listenHost === "0.0.0.0" || listenHost === "::") return getLanInviteUrls(port);
+      try { return [new URL(request.url, `http://${request.headers.host}`).origin]; }
+      catch { return [`http://127.0.0.1:${port}`]; }
+    },
+  };
+}
+
+async function startFriendRoomServer() {
+  if (friendRoomServer?.listening) return getLanInviteUrls(friendRoomServer.address().port);
+  const api = createWebApi();
+  friendRoomServer = createWebServer({ api, friendRooms, friendRoomsOnly: true, desktopDirectory: __dirname });
+  api.getInviteUrls = () => getLanInviteUrls(friendRoomServer?.address()?.port || 0);
+  try {
+    await new Promise((resolve, reject) => {
+      friendRoomServer.once("error", reject);
+      friendRoomServer.listen(0, "0.0.0.0", resolve);
+    });
+  } catch (error) {
+    friendRoomServer = null;
+    throw error;
+  }
+  return getLanInviteUrls(friendRoomServer.address().port);
+}
+
+function activateDesktopRoom(code, token) {
+  activeDesktopRoomUnsubscribe?.();
+  activeDesktopRoom = { code, token };
+  activeDesktopRoomUnsubscribe = friendRooms.subscribe(code, token, (state) => {
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send("game:state", state);
+  });
+}
+
+function snapshot() {
+  return {
+    board: game.board(),
+    finalFen: game.fen(),
+    turn: game.turn(),
+    history: game.history(),
+    phase,
+    status,
+    thinking,
+    outcome,
+    engineFailure,
+    engineId: currentEngineId,
+    engineName: engineDefinition(currentEngineId).name,
+    inCheck: game.in_check(),
+  };
+}
+
+function analyzeSavedGame(moves, onProgress = () => {}, engineId = DEFAULT_ENGINE_ID) {
+  const job = analysisQueue.then(
+    () => analyzeSavedGameNow(moves, onProgress, engineId),
+    () => analyzeSavedGameNow(moves, onProgress, engineId),
+  );
+  analysisQueue = job.then(() => undefined, () => undefined);
+  return job;
+}
+
+async function analyzeSavedGameNow(moves, onProgress, engineId) {
+  if (!Array.isArray(moves) || moves.length === 0 || moves.length > 120) {
+    throw new Error("棋谱无着法，或长度超过复盘上限");
+  }
+  const validationGame = new Xiangqi();
+  for (const move of moves) {
+    if (!validationGame.move(move)) throw new Error(`棋谱中存在不合法着法：${move}`);
+  }
+
+  const analyzer = createUciEngine(engineId);
+  analysisEngine = analyzer;
+  const evaluations = [];
+  const replay = new Xiangqi();
+  const total = moves.length + 1;
+  try {
+    for (let index = 0; index <= moves.length; index += 1) {
+      if (index > 0) replay.move(moves[index - 1]);
+      const terminal = terminalEvaluation(replay, resolveGameResult(replay));
+      const evaluation = terminal || await analyzer.evaluatePosition(moves.slice(0, index));
+      evaluations.push(evaluation);
+      onProgress?.({ completed: index + 1, total });
+    }
+    return reviewGame(moves, evaluations);
+  } finally {
+    await analyzer.stop();
+    if (analysisEngine === analyzer) analysisEngine = null;
+  }
+}
+
+function publish() {
+  const current = snapshot();
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send("game:state", current);
+  }
+  for (const listener of webStateListeners) listener(current);
+}
+
+function createUciEngine(engineId = currentEngineId) {
+  return new UciEngine(engineId, {
+    isPackaged: app.isPackaged,
+    resourcesPath: process.resourcesPath,
+    projectRoot: path.join(__dirname, ".."),
+  });
+}
+
+function finish(winner, reason, pattern = null) {
+  phase = "finished";
+  thinking = false;
+  engineFailure = false;
+  const titles = { red: "你赢了", black: `${engineDefinition(currentEngineId).name} 获胜`, draw: "本局和棋" };
+  outcome = { winner, title: titles[winner], reason };
+  if (pattern) outcome.pattern = pattern;
+  status = `${outcome.title} · ${reason}`;
+}
+
+function checkResult() {
+  const result = resolveGameResult(game);
+  if (!result) return false;
+  finish(result.winner, result.reason, result.pattern);
+  return true;
+}
+
+async function startGame(engineId = currentEngineId) {
+  const nextEngineId = normalizeEngineId(engineId);
+  gameGeneration += 1;
+  if (engine && engine.engineId !== nextEngineId) {
+    await engine.stop();
+    engine = null;
+  } else if (engine) {
+    try {
+      await engine.newGame();
+    } catch {
+      await engine.stop();
+      engine = null;
+    }
+  }
+  currentEngineId = nextEngineId;
+  game = new Xiangqi();
+  phase = "playing";
+  status = "轮到你走（红方）";
+  thinking = false;
+  outcome = null;
+  engineFailure = false;
+  publish();
+  return snapshot();
+}
+
+function getLegalMoves(square) {
+  if (phase !== "playing" || thinking || game.turn() !== HUMAN || typeof square !== "string") return [];
+  return game.moves({ square });
+}
+
+function submitMove(move, difficulty) {
+  if (phase !== "playing" || thinking || game.turn() !== HUMAN || typeof move !== "string") {
+    return { ok: false, message: "现在不能落子" };
+  }
+  const result = game.move(move);
+  if (!result) return { ok: false, message: "这步棋不符合规则" };
+  currentDifficulty = normalizeDifficulty(difficulty);
+  if (!checkResult()) {
+    void runEngineTurn(currentDifficulty);
+  } else {
+    publish();
+  }
+  return { ok: true };
+}
+
+function undoGame() {
+  if (phase !== "playing" || thinking || game.history().length < 2) return { ok: false };
+  game.undo();
+  game.undo();
+  outcome = null;
+  status = "已悔棋，轮到你走（红方）";
+  publish();
+  return { ok: true };
+}
+
+function resignGame() {
+  if (phase !== "playing" || thinking) return { ok: false };
+  finish("black", "你选择认输");
+  publish();
+  return { ok: true };
+}
+
+function retryEngine(difficulty) {
+  if (!engineFailure || phase !== "playing" || game.turn() !== ENGINE) return { ok: false };
+  currentDifficulty = normalizeDifficulty(difficulty ?? currentDifficulty);
+  void runEngineTurn(currentDifficulty);
+  return { ok: true };
+}
+
+async function startWebServer(port = 4173) {
+  const hostArgument = process.argv.find((argument) => argument.startsWith("--host="));
+  const listenHost = hostArgument ? hostArgument.slice("--host=".length) : "127.0.0.1";
+  if (!new Set(["127.0.0.1", "0.0.0.0", "::1", "::"]).has(listenHost)) {
+    throw new Error("Web 服务监听地址仅支持 127.0.0.1 或 0.0.0.0");
+  }
+  const api = createWebApi(null, listenHost);
+  webServer = createWebServer({ api, friendRooms, desktopDirectory: __dirname });
+  api.getInviteUrls = (request) => {
+    const actualPort = webServer?.address()?.port;
+    if (!actualPort) return [];
+    if (listenHost === "0.0.0.0" || listenHost === "::") return getLanInviteUrls(actualPort);
+    try { return [new URL(request.url, `http://${request.headers.host}`).origin]; }
+    catch { return [`http://127.0.0.1:${actualPort}`]; }
+  };
+  await new Promise((resolve, reject) => {
+    webServer.once("error", reject);
+    webServer.listen(port, listenHost, resolve);
+  });
+  const address = webServer.address();
+  return `http://127.0.0.1:${address.port}/`;
+}
+
+function closeWebServer() {
+  activeDesktopRoomUnsubscribe?.();
+  activeDesktopRoomUnsubscribe = null;
+  const servers = [webServer, friendRoomServer].filter(Boolean);
+  webServer = null;
+  friendRoomServer = null;
+  return Promise.all(servers.map((server) => new Promise((resolve) => {
+    server.closeAllConnections?.();
+    if (!server.listening) return resolve();
+    server.close(resolve);
+  })));
+}
+
+async function runEngineTurn(difficulty = currentDifficulty) {
+  if (phase !== "playing" || game.turn() !== ENGINE || thinking) return;
+  const generation = gameGeneration;
+  thinking = true;
+  engineFailure = false;
+  status = `${engineDefinition(currentEngineId).name} 正在思考…`;
+  publish();
+  try {
+    if (!engine) engine = createUciEngine(currentEngineId);
+    const move = await engine.search(game.history(), difficulty);
+    if (generation !== gameGeneration || phase !== "playing") return;
+    const result = game.move(move);
+    if (!result) throw new Error(`引擎着法未通过规则校验：${move}`);
+    thinking = false;
+    if (!checkResult()) status = "轮到你走（红方）";
+  } catch (error) {
+    await engine?.stop();
+    engine = null;
+    thinking = false;
+    engineFailure = true;
+    status = `引擎暂时无法应手：${error.message}`;
+  }
+  publish();
+}
+
+async function createWindow(hidden = false, { url = null, withPreload = true, partition = null } = {}) {
+  const webPreferences = {
+    contextIsolation: true,
+    nodeIntegration: false,
+    sandbox: true,
+    backgroundThrottling: !hidden,
+    offscreen: hidden,
+  };
+  if (partition) webPreferences.partition = partition;
+  if (withPreload) webPreferences.preload = path.join(__dirname, "preload.cjs");
+  mainWindow = new BrowserWindow({
+    width: 1260,
+    height: 900,
+    minWidth: 980,
+    minHeight: 720,
+    show: !hidden,
+    title: "NinePalace · 九宫象棋",
+    autoHideMenuBar: true,
+    backgroundColor: "#eaf8ff",
+    webPreferences,
+  });
+  if (url) await mainWindow.loadURL(url);
+  else await mainWindow.loadFile(path.join(__dirname, "index.html"));
+  mainWindow.on("closed", () => {
+    mainWindow = null;
+  });
+}
+
+ipcMain.handle("game:get-state", () => {
+  if (!activeDesktopRoom) return snapshot();
+  const state = friendRooms.getState(activeDesktopRoom.code, activeDesktopRoom.token);
+  const port = friendRoomServer?.address()?.port;
+  return { ...state, inviteUrls: port ? getLanInviteUrls(port) : [] };
+});
+ipcMain.handle("game:start", async (_event, engineId) => {
+  activeDesktopRoomUnsubscribe?.();
+  activeDesktopRoomUnsubscribe = null;
+  activeDesktopRoom = null;
+  return startGame(engineId);
+});
+ipcMain.handle("game:get-legal-moves", (_event, square) => activeDesktopRoom
+  ? friendRooms.getLegalMoves(activeDesktopRoom.code, activeDesktopRoom.token, square)
+  : getLegalMoves(square));
+ipcMain.handle("game:move", (_event, move, difficulty) => activeDesktopRoom
+  ? friendRooms.submitMove(activeDesktopRoom.code, activeDesktopRoom.token, move)
+  : submitMove(move, difficulty));
+ipcMain.handle("game:undo", () => activeDesktopRoom ? { ok: false } : undoGame());
+ipcMain.handle("game:resign", () => activeDesktopRoom
+  ? friendRooms.resign(activeDesktopRoom.code, activeDesktopRoom.token)
+  : resignGame());
+ipcMain.handle("game:retry-engine", (_event, difficulty) => retryEngine(difficulty));
+ipcMain.handle("game:analyze", async (event, recordId, moves, engineId) => analyzeSavedGame(moves, (progress) => {
+  if (!event.sender.isDestroyed()) event.sender.send("game:analysis-progress", { recordId, ...progress });
+}, engineId));
+ipcMain.handle("room:create", async () => {
+  const inviteUrls = await startFriendRoomServer();
+  const session = friendRooms.create();
+  activateDesktopRoom(session.roomCode, session.token);
+  return { ...session, inviteUrls };
+});
+ipcMain.handle("room:join", (_event, rawCode) => {
+  const code = normalizeRoomCode(rawCode);
+  const priorToken = activeDesktopRoom?.code === code ? activeDesktopRoom.token : null;
+  const session = friendRooms.join(code, priorToken);
+  activateDesktopRoom(session.roomCode, session.token);
+  return session;
+});
+ipcMain.handle("room:leave", () => {
+  activeDesktopRoomUnsubscribe?.();
+  activeDesktopRoomUnsubscribe = null;
+  activeDesktopRoom = null;
+  return snapshot();
+});
+
+async function runSmokeTest() {
+  try {
+    const humanMove = "b2e2";
+    const acceptedHumanMove = game.move(humanMove);
+    if (!acceptedHumanMove) throw new Error(`冒烟测试的用户着法不合法：${humanMove}`);
+    if (!engine) engine = new UciEngine();
+    const move = await engine.search(game.history());
+    const applied = game.move(move);
+    if (!applied) throw new Error(`引擎返回非法应手：${move}`);
+    console.log(`NINEPALACE_SMOKE_OK human=${humanMove} engine=${move} fen=${game.fen()}`);
+    await engine.stop();
+    app.exit(0);
+  } catch (error) {
+    console.error(`NINEPALACE_SMOKE_FAILED ${error.stack || error.message}`);
+    await engine?.stop();
+    app.exit(1);
+  }
+}
+
+async function runUiSmokeTest() {
+  try {
+    if (!mainWindow) await createWindow(true);
+    const result = await mainWindow.webContents.executeJavaScript(`(async () => {
+      const pause = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
+      window.npI18n.setLanguage('zh');
+      const lobby = document.querySelector('[data-screen="home"].active');
+      if (!lobby || document.body.dataset.view !== 'home') throw new Error('游戏大厅没有激活');
+      if (lobby.querySelector('.home-copy, .feature-row, .preview-card, #home-board')) {
+        throw new Error('大厅仍然包含宣传页文案、特点标签或演示棋盘');
+      }
+      const lobbyActions = ['start', 'create-room', 'join-room', 'tutorial', 'history'];
+      for (const action of lobbyActions) {
+        const button = lobby.querySelector('[data-action="' + action + '"]');
+        // Desktop hosts rooms; guests join through a browser invitation.
+        if (action === 'join-room' && location.protocol === 'file:' && button?.hidden) continue;
+        const rect = button?.getBoundingClientRect();
+        if (!rect || rect.width < 40 || rect.height < 36 || rect.left < 0 || rect.right > innerWidth || rect.top < 0 || rect.bottom > innerHeight) {
+          throw new Error('大厅入口被裁切或无法点击：' + action);
+        }
+      }
+      const characterFiles = {
+        'red-rook': ['ninepalace-red-rook-girl.png', '绯音'],
+        'red-horse': ['ninepalace-red-horse-girl.png', '朱羽'],
+        'black-rook': ['ninepalace-black-rook-loli.png', '墨铃'],
+        'black-horse': ['ninepalace-black-horse-loli.png', '玄芽'],
+      };
+      const characterColors = new Set();
+      for (const [id, [file, name]] of Object.entries(characterFiles)) {
+        const choice = document.querySelector('[data-character-id="' + id + '"]');
+        if (!choice) throw new Error('首页缺少棋友切换按钮：' + id);
+        choice.click();
+        const hero = document.querySelector('#lobby-character');
+        const portrait = document.querySelector('#companion-portrait');
+        if (document.body.dataset.character !== id || hero.getAttribute('src') !== './assets/' + file || portrait.getAttribute('src') !== './assets/' + file) {
+          throw new Error('棋友切换后立绘没有同步：' + id);
+        }
+        if (document.querySelector('#lobby-character-name').textContent !== name || choice.getAttribute('aria-pressed') !== 'true') {
+          throw new Error('棋友切换后名字或选中状态没有同步：' + id);
+        }
+        if (localStorage.getItem('ninepalace.character.v1') !== id) throw new Error('棋友选择没有保存在本机：' + id);
+        if (handCharacterFor('r') !== id || handCharacterFor('b') === id) throw new Error('角色选择没有同步到执棋手：' + id);
+        characterColors.add(getComputedStyle(document.body).getPropertyValue('--character-accent').trim());
+      }
+      if (characterColors.size !== 4) throw new Error('四位棋友没有各自独立的主题色');
+      document.querySelector('[data-character-id="red-rook"]').click();
+      const priorRecordIds = new Set(JSON.parse(localStorage.getItem('ninepalace.saved-games.v1') || '[]').map((record) => record.id));
+      const languageButton = document.querySelector('#language-toggle');
+      languageButton.click();
+      if (document.documentElement.lang !== 'en' || !document.querySelector('[data-screen="home"] [data-action="start"]').textContent.includes('Play vs engine')) {
+        throw new Error('英文界面切换未覆盖首页关键操作');
+      }
+      languageButton.click();
+      if (document.documentElement.lang !== 'zh-CN') throw new Error('简体中文界面无法切回');
+      const previousPreferences = window.npSettings.getPreferences();
+      document.querySelector('#settings-open').click();
+      const engineSetting = document.querySelector('#engine-setting');
+      if (engineSetting.value !== previousPreferences.engineId) throw new Error('对弈引擎没有从本地偏好载入');
+      engineSetting.value = 'fairy-stockfish';
+      engineSetting.dispatchEvent(new Event('change', { bubbles: true }));
+      if (window.npSettings.getPreferences().engineId !== 'fairy-stockfish') throw new Error('对弈引擎设置没有保存');
+      const difficultySetting = document.querySelector('#difficulty-setting');
+      if (difficultySetting.value !== previousPreferences.difficulty) throw new Error('人机难度设置未从本地偏好载入');
+      difficultySetting.value = 'easy';
+      difficultySetting.dispatchEvent(new Event('change', { bubbles: true }));
+      if (window.npSettings.getPreferences().difficulty !== 'easy') throw new Error('人机难度设置没有保存');
+      const motionSetting = document.querySelector('#motion-setting');
+      motionSetting.value = 'reduce';
+      motionSetting.dispatchEvent(new Event('change', { bubbles: true }));
+      if (!document.documentElement.classList.contains('reduce-motion')) throw new Error('减少动画偏好没有生效');
+      motionSetting.value = 'full';
+      motionSetting.dispatchEvent(new Event('change', { bubbles: true }));
+      if (document.documentElement.classList.contains('reduce-motion')) throw new Error('完整动画偏好没有生效');
+      const soundToggle = document.querySelector('#sound-toggle');
+      soundToggle.checked = true;
+      soundToggle.dispatchEvent(new Event('change', { bubbles: true }));
+      if (!window.npSettings.getPreferences().sound) throw new Error('走棋音效开关没有保存');
+      difficultySetting.value = previousPreferences.difficulty;
+      difficultySetting.dispatchEvent(new Event('change', { bubbles: true }));
+      motionSetting.value = previousPreferences.motion;
+      motionSetting.dispatchEvent(new Event('change', { bubbles: true }));
+      soundToggle.checked = previousPreferences.sound;
+      soundToggle.dispatchEvent(new Event('change', { bubbles: true }));
+      engineSetting.value = 'fairy-stockfish';
+      engineSetting.dispatchEvent(new Event('change', { bubbles: true }));
+      document.querySelector('#settings-dialog button[type="submit"]').click();
+      if (document.querySelector('#settings-dialog').open) throw new Error('设置对话框没有关闭');
+      let state;
+      const waitFor = async (predicate, label, timeoutMs = 10000) => {
+        const deadline = Date.now() + timeoutMs;
+        do {
+          state = await window.ninepalace.getState();
+          const value = predicate(state);
+          if (value) return value;
+          await pause(50);
+        } while (Date.now() < deadline);
+        throw new Error(label);
+      };
+      const playFirstTurn = async () => {
+        const board = document.querySelector('#game-board');
+        await waitFor(() => board.getAttribute('aria-busy') !== 'true', '上一步走棋动画没有结束');
+        const cannon = board.querySelector('[data-square="b2"]');
+        if (!cannon) throw new Error('棋盘缺少红炮格点 b2');
+        cannon.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+        const legalMoves = await window.ninepalace.getLegalMoves('b2');
+        if (!legalMoves.includes('b2e2')) throw new Error('规则层未提供预期的红炮着法 b2e2');
+        const deadline = Date.now() + 5000;
+        while (!board.querySelector('.legal-dot') && Date.now() < deadline) await pause(25);
+        if (!board.querySelector('.legal-dot')) throw new Error('界面没有显示合法落点');
+        const target = board.querySelector('[data-square="e2"]');
+        if (!target) throw new Error('棋盘缺少目标格点 e2');
+        let animatedMove = null;
+        const moveAnimations = [];
+        let animationObserver = null;
+        if (!document.documentElement.classList.contains('reduce-motion')) {
+          animationObserver = new MutationObserver(() => {
+            const carrier = board.querySelector('[data-piece-move-animation]');
+            if (carrier && !moveAnimations.some(move => move.from === carrier.dataset.moveFrom && move.to === carrier.dataset.moveTo)) {
+              const frames = carrier.querySelector('.moving-piece')?.getAnimations()[0]?.effect.getKeyframes();
+              if (!board.querySelector('.piece-hand[data-hand-style="painted"] .hand-frame[data-pose="hold"] image') || !frames?.some(frame => new DOMMatrix(frame.transform).a > 1.05)) throw new Error('走棋缺少绘制人手或提起效果');
+              moveAnimations.push({ from: carrier.dataset.moveFrom, to: carrier.dataset.moveTo });
+            }
+            const movingPiece = board.querySelector('[data-engine-move-animation]');
+            if (!movingPiece) return;
+            animatedMove = { from: movingPiece.dataset.moveFrom, to: movingPiece.dataset.moveTo };
+            animationObserver.disconnect();
+          });
+          animationObserver.observe(board, { childList: true, subtree: true });
+        }
+        target.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+        await waitFor((next) => {
+          if (next.engineFailure) throw new Error(next.status);
+          return next.phase === 'playing' && next.history.length === 2 && next.turn === 'r' && !next.thinking;
+        }, '等待 Pikafish 应手超时', 30000);
+        const moveRow = document.querySelector('#moves-list .move-row:last-child');
+        if (moveRow?.children[1]?.textContent !== '炮八平五') {
+          throw new Error('中文着法没有按象棋记谱显示红方炮八平五：' + JSON.stringify(Array.from(moveRow?.children || []).map((child) => child.textContent)));
+        }
+        if (!moveRow?.children[2]?.textContent || moveRow.children[2].textContent.includes('→')) {
+          throw new Error('中文着法没有正确显示黑方应手');
+        }
+        if (animationObserver) {
+          const animationDeadline = Date.now() + 4000;
+          while (!animatedMove && Date.now() < animationDeadline) await pause(20);
+          animationObserver.disconnect();
+          const engineMove = state.history.at(-1);
+          if (!animatedMove) throw new Error('引擎应手没有展示棋子移动动画：' + JSON.stringify({ moveAnimations, busy: board.getAttribute('aria-busy'), active:board.querySelector('[data-piece-move-animation]')?.outerHTML, history: state.history }));
+          if (animatedMove.from !== engineMove.slice(0, 2) || animatedMove.to !== engineMove.slice(2, 4)) {
+            throw new Error('引擎移动动画的起点/终点与实际着法不一致');
+          }
+          if (moveAnimations.length !== 2 || moveAnimations[0].from !== 'b2' || moveAnimations[0].to !== 'e2') throw new Error('人机双方的提子动画没有按顺序播放');
+        }
+        await waitFor(() => board.getAttribute('aria-busy') !== 'true', '棋子没有落稳');
+      };
+
+      const homeStart = document.querySelector('[data-screen="home"].active [data-action="start"]');
+      if (!homeStart) throw new Error('找不到首页的开始对局按钮');
+      homeStart.click();
+      await waitFor((next) => next.phase === 'playing' && next.engineId === 'fairy-stockfish', '选择 Fairy-Stockfish 后没有按所选引擎开始对局');
+      if (document.body.dataset.view !== 'match') throw new Error('开始对局后没有切换离开大厅布局');
+      const tableBounds = document.querySelector('.match-table').getBoundingClientRect();
+      if (tableBounds.bottom > innerHeight || tableBounds.left < 0 || tableBounds.right > innerWidth) {
+        throw new Error('对局棋盘没有完整适配窗口');
+      }
+      if (document.querySelector('#demo-note') || document.querySelector('.help-copy') || document.querySelector('.match-help').open) {
+        throw new Error('对局页仍然默认展开开发说明或重复的帮助文案');
+      }
+      const practiceBoard = document.querySelector('#game-board');
+      const practiceCount = () => document.querySelectorAll('#variation-line [data-variation-ply]').length;
+      const playPracticeMove = async (move) => {
+        await waitFor(() => practiceBoard.getAttribute('aria-busy') !== 'true', '推演前一步动画没有结束');
+        const count = practiceCount();
+        practiceBoard.querySelector('[data-square="' + move.slice(0, 2) + '"]').dispatchEvent(new MouseEvent('click', { bubbles: true }));
+        practiceBoard.querySelector('[data-square="' + move.slice(2) + '"]').dispatchEvent(new MouseEvent('click', { bubbles: true }));
+        if (practiceCount() !== count + 1) throw new Error('推演无法合法落子：' + move);
+        if (!document.documentElement.classList.contains('reduce-motion') && !practiceBoard.querySelector('.piece-hand[data-hand-character]')) throw new Error('推演着法缺少角色提子动画');
+        await waitFor(() => practiceBoard.getAttribute('aria-busy') !== 'true', '推演棋子没有落稳');
+      };
+      const positionSignature = (position) => JSON.stringify([position.board, position.history, position.turn, position.phase, position.thinking, position.outcome, position.finalFen]);
+      const beforePractice = positionSignature(await window.ninepalace.getState());
+      const recordsBeforePractice = localStorage.getItem('ninepalace.saved-games.v1');
+      document.querySelector('#variation-toggle').click();
+      if (document.querySelector('#variation-panel').hidden || document.querySelector('#variation-toggle').getAttribute('aria-pressed') !== 'true') throw new Error('推演模式没有开启');
+      await playPracticeMove('b2e2');
+      await playPracticeMove('b7e7');
+      if (document.querySelector('#variation-line strong').textContent !== '炮八平五') throw new Error('推演没有使用中文象棋记谱');
+      document.querySelector('#variation-back').click();
+      if (practiceCount() !== 1) throw new Error('推演退一步没有撤回单手着法');
+      document.querySelector('#variation-forward').click();
+      if (practiceCount() !== 2) throw new Error('推演重做没有恢复着法');
+      document.querySelector('#variation-back').click();
+      await playPracticeMove('a6a5');
+      if (!document.querySelector('#variation-forward').disabled) throw new Error('改走其他路线后仍保留了过期重做');
+      languageButton.click();
+      if (practiceCount() !== 2 || !document.querySelector('#variation-title').textContent.includes('Practice')) throw new Error('英文切换丢失推演路线');
+      languageButton.click();
+      document.querySelector('#variation-reset').click();
+      if (practiceCount() !== 0 || !document.querySelector('#variation-commit').disabled || !document.querySelector('#variation-forward').disabled) throw new Error('推演重置没有回到实战起点');
+      practiceBoard.querySelector('[data-square="b2"]').dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      for (let step = 0; step < 3; step += 1) practiceBoard.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
+      practiceBoard.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+      if (practiceCount() !== 1) throw new Error('推演模式无法使用键盘落子');
+      document.querySelector('#variation-exit').click();
+      if (positionSignature(await window.ninepalace.getState()) !== beforePractice) throw new Error('试走或退出推演改变了实战');
+      if (localStorage.getItem('ninepalace.saved-games.v1') !== recordsBeforePractice) throw new Error('推演写入了实战棋谱');
+      if (!document.querySelector('#variation-panel').hidden || !practiceBoard.querySelector('[data-square="b2"]').getAttribute('aria-label').includes('红炮')) throw new Error('退出后没有还原实战棋盘');
+      document.querySelector('#variation-toggle').click();
+      await playPracticeMove('b2e2');
+      await playPracticeMove('b7e7');
+      await playPracticeMove('b0c2');
+      document.querySelector('#variation-commit').click();
+      await waitFor(next => next.history.length === 2 && next.turn === 'r' && !next.thinking, '采用首步后没有完成真实引擎回合', 30000);
+      if (state.history[0] !== 'b2e2' || !document.querySelector('#variation-panel').hidden) throw new Error('采用首步错误提交了整条推演路线');
+      await waitFor(() => !document.querySelector('#undo-button').disabled, '采用首步后的悔棋不可用');
+      document.querySelector('#undo-button').click();
+      await waitFor(next => next.history.length === 0 && !next.thinking, '采用首步后的测试回合无法恢复');
+      await playFirstTurn();
+
+      const undoButton = document.querySelector('#undo-button');
+      await waitFor(() => !undoButton.disabled, '完整回合结束后悔棋按钮仍不可用');
+      undoButton.click();
+      await waitFor((next) => next.phase === 'playing' && next.history.length === 0 && next.turn === 'r' && !next.thinking,
+        '悔棋没有恢复到红方初始回合');
+      await waitFor(() => undoButton.disabled, '悔棋后按钮状态未刷新');
+
+      const keyboardBoard = document.querySelector('#game-board');
+      if (keyboardBoard.getAttribute('aria-rowcount') !== '10' || keyboardBoard.getAttribute('aria-colcount') !== '9') {
+        throw new Error('棋盘没有暴露完整的网格尺寸');
+      }
+      keyboardBoard.focus();
+      for (let step = 0; step < 3; step += 1) {
+        keyboardBoard.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true }));
+      }
+      if (keyboardBoard.getAttribute('aria-activedescendant') !== 'game-board-square-b2') {
+        throw new Error('方向键导航没有同步读屏器焦点位置');
+      }
+      keyboardBoard.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+      await waitFor(() => keyboardBoard.querySelector('#game-board-square-b2')?.getAttribute('aria-selected') === 'true'
+        && keyboardBoard.querySelector('.legal-dot'), '键盘无法选中棋子或暴露其选择状态');
+      for (let step = 0; step < 3; step += 1) {
+        keyboardBoard.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
+      }
+      keyboardBoard.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+      await waitFor((next) => next.phase === 'playing' && next.history.length === 2 && next.turn === 'r' && !next.thinking,
+        '键盘无法将红炮走到 e2 并完成引擎应手', 30000);
+      await waitFor(() => !undoButton.disabled, '键盘对局结束后悔棋按钮状态未刷新');
+      undoButton.click();
+      await waitFor((next) => next.phase === 'playing' && next.history.length === 0 && next.turn === 'r' && !next.thinking,
+        '键盘对局后的悔棋没有恢复初始局面');
+
+      await playFirstTurn();
+      window.confirm = () => true;
+      document.querySelector('#resign-button').click();
+      await waitFor((next) => next.phase === 'finished' && next.outcome?.winner === 'black', '认输没有结束对局');
+      const resultScreen = document.querySelector('[data-screen="result"]');
+      await waitFor(() => resultScreen.classList.contains('active'), '结束动画后没有显示结果页', 6000);
+      if (!document.querySelector('#result-pattern').hidden) throw new Error('认输被错误标记成了命名杀法');
+      await waitFor(() => document.querySelector('.result-card').dataset.winner === 'black', '结果页没有标记获胜方');
+      if (!document.querySelector('#result-score').textContent.includes('Fairy-Stockfish 获胜')) {
+        throw new Error('结果页没有显示所选引擎 Fairy-Stockfish');
+      }
+      const savedRecord = await waitFor(() => JSON.parse(localStorage.getItem('ninepalace.saved-games.v1') || '[]')
+        .find((record) => !priorRecordIds.has(record.id) && record.reason === '你选择认输'), '结束对局后没有保存本地棋谱');
+      if (savedRecord.moves.length !== 2 || !savedRecord.pgn || !savedRecord.finalFen || savedRecord.engineId !== 'fairy-stockfish') throw new Error('本地棋谱缺少着法、所选引擎标识、PGN 或终局局面');
+      if (document.querySelector('#result-review').disabled) throw new Error('已保存棋谱但结算页复盘按钮不可用');
+
+      const restartButton = resultScreen.querySelector('[data-action="start"]');
+      if (!restartButton) throw new Error('结果页缺少再来一局按钮');
+      restartButton.click();
+      await waitFor((next) => next.phase === 'playing' && next.history.length === 0 && next.turn === 'r' && !next.thinking,
+        '重新开局后棋局状态不正确');
+      await waitFor(() => document.querySelector('[data-screen="match"].active'), '重新开局后没有返回对局页');
+      document.querySelector('[data-screen="match"].active [data-action="home"]').click();
+      await waitFor(() => document.querySelector('[data-screen="home"].active'), '无法从对局返回首页');
+      document.querySelector('[data-screen="home"].active [data-action="history"]').click();
+      await waitFor(() => document.querySelector('[data-screen="history"].active')
+        && Array.from(document.querySelectorAll('[data-replay-id]')).some((entry) => entry.dataset.replayId === savedRecord.id),
+      '最近棋谱列表没有显示刚结束的对局');
+      Array.from(document.querySelectorAll('[data-replay-id]')).find((entry) => entry.dataset.replayId === savedRecord.id).click();
+      await waitFor(() => document.querySelector('[data-screen="replay"].active')
+        && document.querySelector('#replay-position').textContent === '0 / 2 手', '棋谱没有从初始局面开始回放');
+      if (document.querySelector('#replay-moves .review-move-notation')?.textContent !== '炮八平五') {
+        throw new Error('复盘棋谱没有显示中文象棋记谱');
+      }
+      document.querySelector('[data-replay-step="next"]').click();
+      if (document.querySelector('#replay-position').textContent !== '1 / 2 手') throw new Error('逐手回放无法前进一步');
+      document.querySelector('[data-replay-step="last"]').click();
+      if (document.querySelector('#replay-position').textContent !== '2 / 2 手') throw new Error('回放无法跳到终局');
+      const replayModel = new window.NinePalaceXiangqi();
+      for (const move of savedRecord.moves) replayModel.move(move);
+      if (replayModel.fen() !== savedRecord.finalFen) throw new Error('回放终局与保存的局面不一致');
+      document.querySelector('#review-start').click();
+      await waitFor(() => !document.querySelector('#review-summary').hidden
+        && document.querySelectorAll('#replay-moves .review-quality').length === savedRecord.moves.length,
+      '逐手复盘没有完成或未显示着法评价', 30000);
+      document.querySelector('#replay-moves [data-review-ply="0"]').click();
+      if (!document.querySelector('#review-detail').textContent.includes('引擎正招')) throw new Error('复盘详情没有显示引擎推荐着法');
+      if (document.querySelector('#review-detail .review-line strong')?.textContent !== '炮八平五') {
+        throw new Error('逐手复盘没有使用中文象棋记谱显示实战着法');
+      }
+      if (!document.querySelector('#review-detail .review-continuation')) throw new Error('复盘详情没有显示引擎后续变化');
+      const viewBestMove = document.querySelector('#review-detail [data-review-action="best"]');
+      if (!viewBestMove) throw new Error('复盘详情缺少查看正招操作');
+      viewBestMove.click();
+      if (!document.querySelector('#replay-board .review-best-arrow')) throw new Error('正招没有在棋盘上显示路线');
+      document.querySelector('#review-detail [data-review-action="played"]').click();
+      if (document.querySelector('#replay-board .review-best-arrow')) throw new Error('返回实战着法后正招箭头仍显示');
+      document.querySelector('[data-screen="replay"].active [data-action="history"]').click();
+      await waitFor(() => document.querySelector('[data-screen="history"].active'), '无法从回放返回最近棋谱');
+      localStorage.setItem('ninepalace.saved-games.v1', JSON.stringify(
+        JSON.parse(localStorage.getItem('ninepalace.saved-games.v1') || '[]').filter((record) => record.id !== savedRecord.id)));
+      document.querySelector('[data-screen="history"].active [data-action="home"]').click();
+      await waitFor(() => document.querySelector('[data-screen="home"].active'), '无法从棋谱列表返回首页');
+      document.querySelector('[data-screen="home"].active [data-action="tutorial"]').click();
+      await waitFor((next) => next.phase === 'playing'
+        && document.querySelector('[data-screen="match"].active')
+        && !document.querySelector('#lesson-card').hidden
+        && document.querySelector('#lesson-title').textContent === '先选中一枚红方棋子',
+      '新手教学没有从第一步开始');
+      const tutorialBoard = document.querySelector('#game-board');
+      tutorialBoard.querySelector('[data-square="b2"]').dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      await waitFor(() => document.querySelector('#lesson-title').textContent === '选择一个合法落点',
+        '选中红炮后没有进入落子教学');
+      const tutorialMoves = await window.ninepalace.getLegalMoves('b2');
+      if (!tutorialMoves.includes('b2e2')) throw new Error('新手教学示例着法不合法');
+      tutorialBoard.querySelector('[data-square="e2"]').dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      await waitFor((next) => next.phase === 'playing' && next.history.length >= 2 && next.turn === 'r' && !next.thinking
+        && document.querySelector('#lesson-title').textContent === '现在可以自由对弈了',
+      '红炮走子后没有完成 Pikafish 应手教学', 30000);
+      document.querySelector('#lesson-exit').click();
+      if (!document.querySelector('#lesson-card').hidden) throw new Error('完成教学后引导卡片未关闭');
+      const completedTutorialState = await window.ninepalace.getState();
+      if (completedTutorialState.history.length !== 2) throw new Error('完成教学后首个示范回合未保留');
+      document.querySelector('[data-screen="match"].active [data-action="home"]').click();
+      await waitFor(() => document.querySelector('[data-screen="home"].active'), '完成教学后无法返回首页');
+      document.querySelector('[data-screen="home"].active [data-action="tutorial"]').click();
+      await waitFor((next) => next.phase === 'playing' && next.history.length === 0 && next.turn === 'r' && !next.thinking
+        && document.querySelector('#lesson-title').textContent === '先选中一枚红方棋子'
+        && !document.querySelector('#lesson-card').hidden, '无法再次打开新手教学');
+      document.querySelector('#lesson-exit').click();
+      await waitFor(() => document.querySelector('#lesson-card').hidden, '跳过操作没有关闭教学卡片');
+      engineSetting.value = previousPreferences.engineId;
+      engineSetting.dispatchEvent(new Event('change', { bubbles: true }));
+      const finalState = await window.ninepalace.getState();
+      return { history: finalState.history, phase: finalState.phase, tutorialCompleted: true };
+    })()`);
+    if (result.phase !== "playing" || result.history.length !== 0 || !result.tutorialCompleted) {
+      throw new Error(`新手教学完成状态不正确：${JSON.stringify(result)}`);
+    }
+    console.log("NINEPALACE_UI_SMOKE_OK start=ok pointer=ok keyboard-aria=ok engine=ok undo=ok resign=result restart=ok replay=ok analysis=ok tutorial=complete+skip variation=both-sides+undo+redo+reset+cancel+apply-first");
+    await engine?.stop();
+    mainWindow?.close();
+    await closeWebServer();
+    app.exit(0);
+  } catch (error) {
+    console.error(`NINEPALACE_UI_SMOKE_FAILED ${error.stack || error.message}`);
+    await engine?.stop();
+    mainWindow?.close();
+    await closeWebServer();
+    app.exit(1);
+  }
+}
+
+async function waitForRoomState(window, predicate, label, timeoutMs = 10000) {
+  const deadline = Date.now() + timeoutMs;
+  let lastState = null;
+  do {
+    try {
+      lastState = await window.webContents.executeJavaScript("window.ninepalace.getState()");
+      if (predicate(lastState)) return lastState;
+    } catch {}
+    await new Promise((resolve) => setTimeout(resolve, 40));
+  } while (Date.now() < deadline);
+  throw new Error(`${label}：${JSON.stringify(lastState)}`);
+}
+
+async function runFriendRoomUiSmokeTest() {
+  let guestWindow = null;
+  try {
+    await createWindow(true, { partition: "ninepalace-friend-host-smoke" });
+    await mainWindow.webContents.executeJavaScript(`(async () => {
+      const button = document.querySelector('[data-action="create-room"]');
+      if (!button) throw new Error('首页缺少创建好友房入口');
+      button.click();
+      const deadline = Date.now() + 10000;
+      while (Date.now() < deadline) {
+        const state = await window.ninepalace.getState();
+        if (state.mode === 'friend' && state.phase === 'waiting') return state;
+        await new Promise((resolve) => setTimeout(resolve, 30));
+      }
+      throw new Error('创建好友房后没有进入等待页面');
+    })()`);
+    let hostState = await waitForRoomState(mainWindow, (state) => state?.mode === "friend" && state.phase === "waiting", "好友房没有创建成功");
+    if (!/^[A-Z0-9]{6}$/.test(hostState.roomCode)) throw new Error(`房间码格式无效：${hostState.roomCode}`);
+    if (!friendRoomServer?.listening) throw new Error("创建房间后没有启动局域网邀请服务");
+
+    const inviteUrl = `http://127.0.0.1:${friendRoomServer.address().port}/?room=${encodeURIComponent(hostState.roomCode)}`;
+    guestWindow = new BrowserWindow({
+      width: 1100,
+      height: 850,
+      show: false,
+      webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true, backgroundThrottling: false, offscreen: true, partition: "ninepalace-friend-guest-smoke" },
+    });
+    await guestWindow.loadURL(inviteUrl);
+    const guestState = await waitForRoomState(guestWindow, (state) => state?.mode === "friend" && state.phase === "playing", "访客无法通过邀请链接加入");
+    if (guestState.playerColor !== "b" || guestState.roomCode !== hostState.roomCode) throw new Error("访客没有取得黑方席位");
+    hostState = await waitForRoomState(mainWindow, (state) => state.players?.black, "房主没有收到访客加入事件");
+
+    await mainWindow.webContents.executeJavaScript(`(async () => {
+      const board = document.querySelector('#game-board');
+      board.querySelector('[data-square="b2"]').dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      const deadline = Date.now() + 3000;
+      while (!board.querySelector('.legal-dot') && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 20));
+      const target = board.querySelector('[data-square="e2"]');
+      if (!board.querySelector('.legal-dot') || !target) throw new Error('房主无法选择合法着法');
+      target.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    })()`);
+    await waitForRoomState(guestWindow, (state) => state.history?.length === 1 && state.turn === "b", "访客没有收到房主的着法同步");
+
+    await guestWindow.webContents.executeJavaScript(`(async () => {
+      const board = document.querySelector('#game-board');
+      const waitForLanding = async () => {
+        const deadline = Date.now() + 5000;
+        while (board.getAttribute('aria-busy') === 'true' && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 30));
+        if (board.getAttribute('aria-busy') === 'true') throw new Error('好友棋子动画没有结束');
+      };
+      await waitForLanding();
+      document.querySelector('#variation-toggle').click();
+      for (const move of ['b7e7', 'b0c2']) {
+        board.querySelector('[data-square="' + move.slice(0,2) + '"]').dispatchEvent(new MouseEvent('click', { bubbles: true }));
+        board.querySelector('[data-square="' + move.slice(2) + '"]').dispatchEvent(new MouseEvent('click', { bubbles: true }));
+        await waitForLanding();
+      }
+      if (document.querySelectorAll('#variation-line [data-variation-ply]').length !== 2) throw new Error('黑方玩家无法自行推演双方着法');
+      if ((await window.ninepalace.getState()).history.length !== 1) throw new Error('访客推演改变了好友实战');
+      document.querySelector('#variation-exit').click();
+      const moves = await window.ninepalace.getLegalMoves('b7');
+      const move = moves.find((candidate) => candidate === 'b7b6');
+      if (!move) throw new Error('黑方合法着法缺失');
+      board.querySelector('[data-square="b7"]').dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      const deadline = Date.now() + 3000;
+      while (!board.querySelector('.legal-dot') && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 20));
+      board.querySelector('[data-square="b6"]').dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      return move;
+    })()`);
+    hostState = await waitForRoomState(mainWindow, (state) => state.history?.length === 2 && state.turn === "r", "房主没有收到访客的着法同步");
+
+    await guestWindow.loadURL(inviteUrl);
+    const resumed = await waitForRoomState(guestWindow, (state) => state.history?.length === 2 && state.playerColor === "b", "访客刷新后无法恢复房间");
+    if (resumed.roomCode !== hostState.roomCode) throw new Error("重连后恢复到了错误房间");
+
+    await mainWindow.webContents.executeJavaScript(`(async () => {
+      const board = document.querySelector('#game-board');
+      const waitForLanding = async () => {
+        const deadline = Date.now() + 5000;
+        while (board.getAttribute('aria-busy') === 'true' && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 30));
+        if (board.getAttribute('aria-busy') === 'true') throw new Error('房主棋子动画没有结束');
+      };
+      await waitForLanding();
+      document.querySelector('#variation-toggle').click();
+      for (const move of ['h2h5', 'a6a5']) {
+        board.querySelector('[data-square="' + move.slice(0,2) + '"]').dispatchEvent(new MouseEvent('click', { bubbles: true }));
+        board.querySelector('[data-square="' + move.slice(2) + '"]').dispatchEvent(new MouseEvent('click', { bubbles: true }));
+        await waitForLanding();
+      }
+      if (document.querySelectorAll('#variation-line [data-variation-ply]').length !== 2) throw new Error('房主未进入私人推演');
+    })()`);
+
+    await guestWindow.webContents.executeJavaScript(`(() => {
+      window.confirm = () => true;
+      document.querySelector('#resign-button').click();
+    })()`);
+    const finalHostState = await waitForRoomState(mainWindow, (state) => state.phase === "finished", "认输后房主没有收到结束状态");
+    const finalGuestState = await waitForRoomState(guestWindow, (state) => state.phase === "finished", "访客页面没有显示对局结果");
+    const shareReady = await guestWindow.webContents.executeJavaScript(`(async () => {
+      const deadline = Date.now() + 6000;
+      while (!document.querySelector('[data-screen="result"]').classList.contains('active') && Date.now() < deadline) {
+        await new Promise(resolve => setTimeout(resolve, 25));
+      }
+      return {
+        visible: !document.querySelector('#result-share-pgn').hidden,
+        resultScreen: document.querySelector('[data-screen="result"]').classList.contains('active'),
+        correctTitle: document.querySelector('#result-title').textContent === window.npI18n.t('friendLoss'),
+        pgn: (await window.ninepalace.getState()).pgn
+      };
+    })()`);
+    if (finalHostState.outcome.winner !== "red" || finalGuestState.outcome.winner !== "red"
+      || !shareReady.visible || !shareReady.resultScreen || !shareReady.correctTitle || !shareReady.pgn.includes("b2e2")) {
+      throw new Error(`好友房结果或棋谱分享未就绪：${JSON.stringify(shareReady)}`);
+    }
+    const hostTitleCorrect = await mainWindow.webContents.executeJavaScript("document.querySelector('#result-title').textContent === window.npI18n.t('friendWin')");
+    if (!hostTitleCorrect) throw new Error("房主的获胜结算标题不正确");
+    const trialCleared = await mainWindow.webContents.executeJavaScript("document.querySelector('#variation-panel').hidden && document.querySelector('#variation-toggle').getAttribute('aria-pressed') === 'false'");
+    if (!trialCleared || finalHostState.history.length !== 2) throw new Error("好友结束对局后没有清除私人推演或实战着法被污染");
+
+    console.log("NINEPALACE_FRIEND_ROOM_SMOKE_OK create=ok invite=ok join=ok authoritative-turns=ok sync=ok reconnect=ok result=ok pgn=ok variation=private+black-seat+live-end-cancel");
+    guestWindow.close();
+    guestWindow = null;
+    mainWindow?.close();
+    await closeWebServer();
+    app.exit(0);
+  } catch (error) {
+    console.error(`NINEPALACE_FRIEND_ROOM_SMOKE_FAILED ${error.stack || error.message}`);
+    guestWindow?.close();
+    mainWindow?.close();
+    await closeWebServer();
+    app.exit(1);
+  }
+}
+
+app.whenReady().then(async () => {
+  if (process.argv.includes("--friend-room-ui-smoke-test")) {
+    await runFriendRoomUiSmokeTest();
+    return;
+  }
+  if (process.argv.includes("--web-ui-smoke-test")) {
+    try {
+      const url = await startWebServer(0);
+      await createWindow(true, { url, withPreload: false });
+      const pwa = await mainWindow.webContents.executeJavaScript(`(async () => {
+        if (!('serviceWorker' in navigator)) throw new Error('当前浏览器没有 Service Worker 支持');
+        const registration = await navigator.serviceWorker.ready;
+        const cache = await caches.open('ninepalace-shell-v24');
+        const required = ['/', '/styles.css', '/lobby.css', '/match.css', '/renderer.js', '/i18n.js', '/character-select.js', '/settings.js', '/chinese-notation.js', '/manifest.webmanifest', '/assets/ninepalace-red-rook-girl.png', '/assets/ninepalace-red-horse-girl.png', '/assets/ninepalace-black-rook-loli.png', '/assets/ninepalace-black-horse-loli.png', '/vendor/xiangqi-js/xiangqi.js'];
+        required.push(...['red-rook', 'red-horse', 'black-rook', 'black-horse'].map(id => '/assets/ninepalace-hand-' + id + '.png'));
+        const missing = [];
+        for (const path of required) {
+          if (!await cache.match(new URL(path, location.origin).href)) missing.push(path);
+        }
+        return { state: registration.active?.state, missing };
+      })()`);
+      if (pwa.state !== "activated" || pwa.missing.length) {
+        throw new Error(`PWA 离线外壳未完整就绪：${JSON.stringify(pwa)}`);
+      }
+      console.log("NINEPALACE_PWA_SMOKE_OK service-worker=activated cached-shell=complete");
+      await runUiSmokeTest();
+    } catch (error) {
+      console.error(`NINEPALACE_WEB_UI_SMOKE_FAILED ${error.stack || error.message}`);
+      await engine?.stop();
+      mainWindow?.close();
+      await closeWebServer();
+      app.exit(1);
+    }
+    return;
+  }
+  if (process.argv.includes("--web-server")) {
+    const portArgument = process.argv.find((argument) => argument.startsWith("--port="));
+    const port = portArgument ? Number(portArgument.slice("--port=".length)) : 4173;
+    if (!Number.isInteger(port) || port < 0 || port > 65535) {
+      console.error("NinePalace Web 服务端口无效，请使用 --port=1 到 --port=65535");
+      app.exit(1);
+      return;
+    }
+    try {
+      const url = await startWebServer(port);
+      console.log(`NINEPALACE_WEB_READY ${url}`);
+      process.once("SIGINT", () => app.quit());
+      process.once("SIGTERM", () => app.quit());
+    } catch (error) {
+      console.error(`NINEPALACE_WEB_FAILED ${error.message}`);
+      app.exit(1);
+    }
+    return;
+  }
+  if (process.argv.includes("--ui-smoke-test")) {
+    await runUiSmokeTest();
+    return;
+  }
+  if (process.argv.includes("--smoke-test")) {
+    await runSmokeTest();
+    return;
+  }
+  await createWindow();
+});
+
+app.on("before-quit", () => {
+  void engine?.stop();
+  void analysisEngine?.stop();
+  void closeWebServer();
+});
+
+app.on("window-all-closed", () => {
+  if (process.platform !== "darwin") app.quit();
+});
