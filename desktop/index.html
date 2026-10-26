@@ -37,6 +37,13 @@
 
         <div class="lobby-menu">
           <div class="lobby-menu-heading"><h1 data-i18n="lobbyPlay">对弈</h1><span aria-hidden="true">PLAY</span></div>
+          <label class="lobby-side" for="player-side">
+            <span data-i18n="playerSideTitle">执棋方</span>
+            <select id="player-side" name="playerColor">
+              <option value="r" data-i18n="playRed">红方 · 先手</option>
+              <option value="b" data-i18n="playBlack">黑方 · 后手</option>
+            </select>
+          </label>
           <button class="lobby-start" type="button" data-action="start">
             <span class="lobby-start-emblem" aria-hidden="true">帥</span>
             <span class="lobby-start-copy"><small data-i18n="lobbySolo">人机练习</small><strong data-i18n="startGame">开始对局</strong></span>

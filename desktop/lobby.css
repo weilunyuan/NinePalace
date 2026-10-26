@@ -166,6 +166,9 @@ body[data-character$="-horse"] .lobby-piece::after { content: "馬"; }
 .lobby-menu-heading > span { color: #81899b; font-size: 10px; letter-spacing: .25em; }
 .lobby-screen button { -webkit-tap-highlight-color: transparent; }
 .lobby-screen button:focus-visible { outline: 3px solid #397da9; outline-offset: 5px; }
+.lobby-side { grid-column: 1 / -1; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 0 4px; color: #465169; font-size: 15px; }
+.lobby-side select { min-width: 168px; min-height: 44px; padding: 8px 12px; border: 1px solid #d8dce6; border-radius: 12px; color: #35435c; background: #ffffffb3; font: inherit; }
+.lobby-side select:focus-visible { outline: 3px solid #397da9; outline-offset: 3px; }
 .lobby-start {
   position: relative;
   isolation: isolate;

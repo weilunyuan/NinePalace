@@ -17,8 +17,7 @@ const {
 const { createWebServer } = require("./web-server.cjs");
 const { createFriendRooms, normalizeRoomCode } = require("./friend-rooms.cjs");
 
-const HUMAN = "r";
-const ENGINE = "b";
+let playerColor = "r";
 let mainWindow = null;
 let game = new Xiangqi();
 let phase = "home";
@@ -51,7 +50,7 @@ function getLanInviteUrls(port) {
 function createWebApi(server = null, listenHost = "127.0.0.1") {
   return {
     getState: () => snapshot(),
-    startGame: (engineId) => startGame(engineId),
+    startGame: (engineId, color, difficulty) => startGame(engineId, color, difficulty),
     getLegalMoves,
     submitMove,
     analyzeGame: (moves, onProgress, engineId) => analyzeSavedGame(moves, onProgress, engineId),
@@ -110,6 +109,7 @@ function snapshot() {
     engineFailure,
     engineId: currentEngineId,
     engineName: engineDefinition(currentEngineId).name,
+    playerColor,
     inCheck: game.in_check(),
   };
 }
@@ -172,8 +172,9 @@ function finish(winner, reason, pattern = null) {
   phase = "finished";
   thinking = false;
   engineFailure = false;
-  const titles = { red: "你赢了", black: `${engineDefinition(currentEngineId).name} 获胜`, draw: "本局和棋" };
-  outcome = { winner, title: titles[winner], reason };
+  const title = winner === "draw" ? "本局和棋"
+    : winner === (playerColor === "b" ? "black" : "red") ? "你赢了" : `${engineDefinition(currentEngineId).name} 获胜`;
+  outcome = { winner, title, reason };
   if (pattern) outcome.pattern = pattern;
   status = `${outcome.title} · ${reason}`;
 }
@@ -185,38 +186,43 @@ function checkResult() {
   return true;
 }
 
-async function startGame(engineId = currentEngineId) {
+async function startGame(engineId = currentEngineId, color = "r", difficulty = DEFAULT_DIFFICULTY) {
   const nextEngineId = normalizeEngineId(engineId);
-  gameGeneration += 1;
-  if (engine && engine.engineId !== nextEngineId) {
-    await engine.stop();
+  const generation = ++gameGeneration;
+  const previousEngine = engine;
+  if (previousEngine && (previousEngine.engineId !== nextEngineId || thinking)) {
     engine = null;
-  } else if (engine) {
+    await previousEngine.stop();
+  } else if (previousEngine) {
     try {
-      await engine.newGame();
+      await previousEngine.newGame();
     } catch {
-      await engine.stop();
-      engine = null;
+      if (engine === previousEngine) engine = null;
+      await previousEngine.stop();
     }
   }
+  if (generation !== gameGeneration) return snapshot();
   currentEngineId = nextEngineId;
+  playerColor = color === "b" ? "b" : "r";
+  currentDifficulty = normalizeDifficulty(difficulty);
   game = new Xiangqi();
   phase = "playing";
-  status = "轮到你走（红方）";
+  status = playerColor === "b" ? "轮到你走（黑方）" : "轮到你走（红方）";
   thinking = false;
   outcome = null;
   engineFailure = false;
   publish();
+  if (playerColor === "b") void runEngineTurn(currentDifficulty);
   return snapshot();
 }
 
 function getLegalMoves(square) {
-  if (phase !== "playing" || thinking || game.turn() !== HUMAN || typeof square !== "string") return [];
+  if (phase !== "playing" || thinking || game.turn() !== playerColor || typeof square !== "string") return [];
   return game.moves({ square });
 }
 
 function submitMove(move, difficulty) {
-  if (phase !== "playing" || thinking || game.turn() !== HUMAN || typeof move !== "string") {
+  if (phase !== "playing" || thinking || game.turn() !== playerColor || typeof move !== "string") {
     return { ok: false, message: "现在不能落子" };
   }
   const result = game.move(move);
@@ -231,24 +237,24 @@ function submitMove(move, difficulty) {
 }
 
 function undoGame() {
-  if (phase !== "playing" || thinking || game.history().length < 2) return { ok: false };
+  if (phase !== "playing" || thinking || game.turn() !== playerColor || game.history().length < 2) return { ok: false };
   game.undo();
   game.undo();
   outcome = null;
-  status = "已悔棋，轮到你走（红方）";
+  status = playerColor === "b" ? "已悔棋，轮到你走（黑方）" : "已悔棋，轮到你走（红方）";
   publish();
   return { ok: true };
 }
 
 function resignGame() {
   if (phase !== "playing" || thinking) return { ok: false };
-  finish("black", "你选择认输");
+  finish(playerColor === "b" ? "red" : "black", "你选择认输");
   publish();
   return { ok: true };
 }
 
 function retryEngine(difficulty) {
-  if (!engineFailure || phase !== "playing" || game.turn() !== ENGINE) return { ok: false };
+  if (!engineFailure || phase !== "playing" || game.turn() === playerColor) return { ok: false };
   currentDifficulty = normalizeDifficulty(difficulty ?? currentDifficulty);
   void runEngineTurn(currentDifficulty);
   return { ok: true };
@@ -291,23 +297,26 @@ function closeWebServer() {
 }
 
 async function runEngineTurn(difficulty = currentDifficulty) {
-  if (phase !== "playing" || game.turn() !== ENGINE || thinking) return;
+  if (phase !== "playing" || game.turn() === playerColor || thinking) return;
   const generation = gameGeneration;
   thinking = true;
   engineFailure = false;
   status = `${engineDefinition(currentEngineId).name} 正在思考…`;
   publish();
+  let searchingEngine = null;
   try {
     if (!engine) engine = createUciEngine(currentEngineId);
-    const move = await engine.search(game.history(), difficulty);
+    searchingEngine = engine;
+    const move = await searchingEngine.search(game.history(), difficulty);
     if (generation !== gameGeneration || phase !== "playing") return;
     const result = game.move(move);
     if (!result) throw new Error(`引擎着法未通过规则校验：${move}`);
     thinking = false;
-    if (!checkResult()) status = "轮到你走（红方）";
+    if (!checkResult()) status = playerColor === "b" ? "轮到你走（黑方）" : "轮到你走（红方）";
   } catch (error) {
-    await engine?.stop();
-    engine = null;
+    await searchingEngine?.stop();
+    if (generation !== gameGeneration) return;
+    if (engine === searchingEngine) engine = null;
     thinking = false;
     engineFailure = true;
     status = `引擎暂时无法应手：${error.message}`;
@@ -349,11 +358,11 @@ ipcMain.handle("game:get-state", () => {
   const port = friendRoomServer?.address()?.port;
   return { ...state, inviteUrls: port ? getLanInviteUrls(port) : [] };
 });
-ipcMain.handle("game:start", async (_event, engineId) => {
+ipcMain.handle("game:start", async (_event, engineId, color, difficulty) => {
   activeDesktopRoomUnsubscribe?.();
   activeDesktopRoomUnsubscribe = null;
   activeDesktopRoom = null;
-  return startGame(engineId);
+  return startGame(engineId, color, difficulty);
 });
 ipcMain.handle("game:get-legal-moves", (_event, square) => activeDesktopRoom
   ? friendRooms.getLegalMoves(activeDesktopRoom.code, activeDesktopRoom.token, square)
@@ -406,6 +415,169 @@ async function runSmokeTest() {
     await engine?.stop();
     app.exit(1);
   }
+}
+
+async function runSideUiSmokeTest() {
+  await mainWindow.webContents.executeJavaScript(`(async () => {
+    const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
+    const assert = (ok, label) => { if (!ok) throw new Error(label); };
+    const board = document.querySelector('#game-board');
+    const preferences = window.npSettings.getPreferences();
+    const language = window.npI18n.getLanguage();
+    const sound = window.npSettings.playMoveSound;
+    const sounds = [];
+    window.npSettings.playMoveSound = options => sounds.push(options || {});
+    const set = (selector, value) => {
+      const control = document.querySelector(selector);
+      control.value = value;
+      control.dispatchEvent(new Event('change', { bubbles: true }));
+    };
+    const wait = async (predicate, label) => {
+      const deadline = Date.now() + 20000;
+      while (Date.now() < deadline) {
+        const position = await window.ninepalace.getState();
+        if (predicate(position)) return position;
+        await pause(30);
+      }
+      throw new Error(label);
+    };
+    const idle = () => wait(() => !boardMotion && !boardMoveQueue.length, '选边对局动画未结束');
+    const clickMove = async move => {
+      await idle();
+      board.querySelector('[data-square="'+move.slice(0,2)+'"]').dispatchEvent(new MouseEvent('click',{bubbles:true}));
+      await wait(() => legalTargets.includes(move), '翻转棋盘无法选中己方棋子：'+move);
+      board.querySelector('[data-square="'+move.slice(2)+'"]').dispatchEvent(new MouseEvent('click',{bubbles:true}));
+    };
+    try {
+      await Promise.all(Object.values(HAND_SPRITES).map(sprite => sprite.loaded));
+      for (const engineId of ['pikafish', 'fairy-stockfish']) {
+        showScreen('home');
+        window.npI18n.setLanguage('zh');
+        set('#player-side','b');
+        set('#engine-setting',engineId);
+        set('#difficulty-setting','beginner');
+        set('#motion-setting',engineId === 'pikafish' ? 'full' : 'reduce');
+        assert(window.npSettings.getPreferences().playerColor === 'b'
+          && JSON.parse(localStorage.getItem('ninepalace.preferences.v2')).playerColor === 'b', '执棋方偏好未保存');
+        const seen = [];
+        const stop = window.ninepalace.onState(position => seen.push(position));
+        const hands = [];
+        const observer = new MutationObserver(() => {
+          const hand = board.querySelector('.piece-hand');
+          if (hand) hands.push({side:hand.dataset.handSeat, angle:hand.querySelector('.hand-illustration').getAttribute('transform')});
+        });
+        observer.observe(board,{childList:true});
+        try {
+          document.querySelector('[data-screen="home"] [data-action="start"]').click();
+          const opening = await wait(position => position.playerColor === 'b' && position.engineId === engineId
+            && position.history.length === 1 && position.turn === 'b' && !position.thinking
+            && document.body.dataset.view === 'match' && position, 'AI 未执红先走：'+engineId);
+          await idle();
+          await pause(150);
+          assert(seen.some(position => position.playerColor === 'b' && position.history.length === 0 && position.thinking), '开局未进入 AI 先行状态');
+          assert((await window.ninepalace.getState()).history.length === 1, 'AI 开局重复走棋');
+          assert(board.dataset.orientation === 'black', '执黑时棋盘未翻转');
+          const blackKing = board.querySelector('[data-square="e9"]');
+          assert(Number(blackKing.getAttribute('y')) === 453 && blackKing.getAttribute('aria-rowindex') === '10', '黑将不在下方');
+          assert(Number(board.querySelector('[data-square="a9"]').getAttribute('x')) === 403, '翻转棋盘未交换左右路线');
+          assert(board.querySelector('.board-hit-areas [role="row"] [role="gridcell"]').dataset.square === 'i0', '读屏顺序与翻转棋盘不一致');
+          assert(document.querySelector('#top-player-meta').textContent === '红方'
+            && document.querySelector('#bottom-player-meta').textContent === '黑方'
+            && document.querySelector('#bottom-avatar').textContent === '將'
+            && document.querySelector('#bottom-avatar').dataset.side === 'b'
+            && document.querySelector('.lobby-start-emblem').textContent === '將', '侧边玩家阵营信息不正确');
+          assert(document.querySelector('#undo-button').disabled && !(await window.ninepalace.undo()).ok, '不能单独撤销 AI 的开局');
+          assert(!(await window.ninepalace.getLegalMoves(opening.history[0].slice(2))).length, '黑方玩家可以选中红棋');
+          const beforeX = blackKing.getBoundingClientRect().x;
+          board.dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowRight',bubbles:true}));
+          assert(board.getAttribute('aria-activedescendant') === 'game-board-square-d9'
+            && board.querySelector('[data-square="d9"]').getBoundingClientRect().x > beforeX, '执黑时方向键未按屏幕方向移动');
+          board.dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowLeft',bubbles:true}));
+          board.dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowUp',bubbles:true}));
+          assert(board.getAttribute('aria-activedescendant') === 'game-board-square-e8', '执黑时向上导航错误');
+          board.dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowDown',bubbles:true}));
+          window.npI18n.setLanguage('en');
+          assert(document.querySelector('#game-status').textContent === 'Your turn (Black)'
+            && document.querySelector('#player-side option[value="b"]').textContent === 'Black · Second', '执黑英文文案不正确');
+          window.npI18n.setLanguage('zh');
+          document.querySelector('#variation-toggle').click();
+          assert(variation?.game.turn() === 'b', '执黑时无法开始推演');
+          const move = variation.game.moves({square:'b7'})[0];
+          assert(!!move, '黑炮没有合法着法');
+          await clickMove(move);
+          await idle();
+          const reply = variation.game.moves()[0];
+          await clickMove(reply);
+          await idle();
+          assert(variation.game.history().length === 2 && board.dataset.orientation === 'black'
+            && (await window.ninepalace.getState()).finalFen === opening.finalFen, '执黑推演未保持实战和棋盘视角');
+          sounds.length = 0;
+          document.querySelector('#variation-commit').click();
+          const after = await wait(position => position.history.length === 3 && position.turn === 'b' && !position.thinking && position, '执黑落子后 AI 未正确应手');
+          await idle();
+          assert(after.history[1] === move && after.history[0] === opening.history[0] && !variation, '推演采用未只提交第一步黑棋');
+          assert(sounds.length === 2 && sounds[0].engine === false && sounds[1].engine === true, '黑方玩家和红方 AI 的落子音效未正确区分');
+          if (engineId === 'pikafish') assert(hands.some(hand => hand.side === 'b' && hand.angle === 'rotate(90)')
+            && hands.some(hand => hand.side === 'r' && hand.angle === 'rotate(-90)'), '翻转棋盘后人手进入方向不正确');
+          document.querySelector('#undo-button').click();
+          await wait(position => position.history.length === 1 && position.turn === 'b' && position.finalFen === opening.finalFen, '执黑悔棋未保留 AI 的开局');
+          set('#motion-setting','reduce');
+          assert((await window.ninepalace.resign()).ok, '执黑认输失败');
+          await wait(position => position.outcome?.winner === 'red' && document.body.dataset.view === 'result', '执黑认输未判红方获胜');
+          assert(document.querySelector('#result-title').textContent === engineNameFor(engineId)+' 获胜'
+            && document.querySelector('#result-emblem').textContent === '负'
+            && document.querySelector('#result-board').dataset.orientation === 'black', '执黑结算胜负或视角不正确');
+          const record = finishedRecord();
+          assert(record?.playerColor === 'b', '棋谱未保存执棋方');
+          openReplay(record);
+          assert(document.querySelector('#replay-board').dataset.orientation === 'black'
+            && document.querySelector('#replay-outcome').textContent.includes(engineNameFor(engineId)+' 获胜'), '执黑复盘未恢复视角和胜负');
+          showScreen('result');
+          document.querySelector('[data-screen="result"] [data-action="start"]').click();
+          await wait(position => position.playerColor === 'b' && position.history.length === 1 && !position.thinking
+            && document.body.dataset.view === 'match', '再来一局未保持执黑并让 AI 先走');
+          showScreen('home');
+          document.querySelector('[data-screen="home"] [data-action="tutorial"]').click();
+          await wait(position => position.playerColor === 'r' && position.history.length === 0
+            && !position.thinking && document.body.dataset.view === 'match', '执黑偏好影响了红方入门教学');
+          assert(board.dataset.orientation === 'red' && window.npSettings.getPreferences().playerColor === 'b', '教学未临时使用红方或覆盖了选边偏好');
+          document.querySelector('#lesson-exit').click();
+        } finally { stop(); observer.disconnect(); }
+      }
+    } finally {
+      window.npSettings.playMoveSound = sound;
+      for (const [selector,key] of [['#player-side','playerColor'],['#engine-setting','engineId'],['#difficulty-setting','difficulty'],['#motion-setting','motion']]) set(selector,preferences[key]);
+      window.npI18n.setLanguage(language);
+    }
+  })()`);
+
+  // Test search failures and stale completions without requiring a broken real engine.
+  await engine?.stop();
+  engine = null;
+  playerColor = "b";
+  finish("black", "将死");
+  if (outcome.title !== "你赢了") throw new Error("黑方获胜被判为引擎获胜");
+  game = new Xiangqi();
+  phase = "playing";
+  outcome = null;
+  currentEngineId = "pikafish";
+  engine = { engineId: "pikafish", search: async () => { throw new Error("test opening failure"); }, stop: async () => {} };
+  await runEngineTurn();
+  if (!engineFailure || thinking || game.turn() !== "r" || game.history().length) throw new Error("黑方开局失败状态不正确");
+  if (!retryEngine("beginner").ok) throw new Error("黑方开局无法重试 AI");
+  const deadline = Date.now() + 20000;
+  while (thinking && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 30));
+  if (engineFailure || thinking || game.turn() !== "b" || game.history().length !== 1) throw new Error("重试后 AI 未完成开局");
+  await engine?.stop();
+  let rejectOldSearch;
+  game = new Xiangqi();
+  engine = { engineId: "pikafish", search: () => new Promise((_resolve,reject) => { rejectOldSearch = reject; }), stop: async () => {} };
+  const oldTurn = runEngineTurn();
+  await startGame("pikafish", "r", "beginner");
+  rejectOldSearch(new Error("test stale search"));
+  await oldTurn;
+  if (playerColor !== "r" || thinking || engineFailure || game.history().length) throw new Error("旧的 AI 开局破坏了换边后的新对局");
+  console.log("NINEPALACE_SIDE_SMOKE_OK engines=2 black-opening=ok flip=pointer+keyboard+aria hands=both-directions undo=preserves-opening variation=apply-first result+replay=perspective tutorial=red retry+stale-search=ok");
 }
 
 async function runUiSmokeTest() {
@@ -757,7 +929,8 @@ async function runUiSmokeTest() {
     if (result.phase !== "playing" || result.history.length !== 0 || !result.tutorialCompleted) {
       throw new Error(`新手教学完成状态不正确：${JSON.stringify(result)}`);
     }
-    console.log("NINEPALACE_UI_SMOKE_OK start=ok pointer=ok keyboard-aria=ok engine=ok undo=ok resign=result restart=ok replay=ok analysis=ok tutorial=complete+skip variation=both-sides+undo+redo+reset+cancel+apply-first");
+    await runSideUiSmokeTest();
+    console.log("NINEPALACE_UI_SMOKE_OK start=ok pointer=ok keyboard-aria=ok engine=ok undo=ok resign=result restart=ok replay=ok analysis=ok tutorial=complete+skip variation=both-sides+undo+redo+reset+cancel+apply-first side=red+black");
     await engine?.stop();
     mainWindow?.close();
     await closeWebServer();
@@ -930,7 +1103,7 @@ app.whenReady().then(async () => {
       const pwa = await mainWindow.webContents.executeJavaScript(`(async () => {
         if (!('serviceWorker' in navigator)) throw new Error('当前浏览器没有 Service Worker 支持');
         const registration = await navigator.serviceWorker.ready;
-        const cache = await caches.open('ninepalace-shell-v24');
+        const cache = await caches.open('ninepalace-shell-v25');
         const required = ['/', '/styles.css', '/lobby.css', '/match.css', '/renderer.js', '/i18n.js', '/character-select.js', '/settings.js', '/chinese-notation.js', '/manifest.webmanifest', '/assets/ninepalace-red-rook-girl.png', '/assets/ninepalace-red-horse-girl.png', '/assets/ninepalace-black-rook-loli.png', '/assets/ninepalace-black-horse-loli.png', '/vendor/xiangqi-js/xiangqi.js'];
         required.push(...['red-rook', 'red-horse', 'black-rook', 'black-horse'].map(id => '/assets/ninepalace-hand-' + id + '.png'));
         const missing = [];

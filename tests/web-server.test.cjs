@@ -13,6 +13,8 @@ test("local web server serves the PWA shell and same-origin game API", async () 
   let retriedDifficulty = null;
   let analyzedMoves = null;
   let startedEngineId = null;
+  let startedSide = null;
+  let startedDifficulty = null;
   let analyzedEngineId = null;
   const api = {
     getState: () => state,
@@ -20,8 +22,10 @@ test("local web server serves the PWA shell and same-origin game API", async () 
       listeners.add(listener);
       return () => listeners.delete(listener);
     },
-    async startGame(engineId) {
+    async startGame(engineId, playerColor, difficulty) {
       startedEngineId = engineId;
+      startedSide = playerColor;
+      startedDifficulty = difficulty;
       state = { ...state, phase: "playing", status: "Playing" };
       publish();
       return state;
@@ -62,7 +66,7 @@ test("local web server serves the PWA shell and same-origin game API", async () 
 
     const worker = await fetch(`${baseUrl}/service-worker.js`);
     assert.equal(worker.status, 200);
-    assert.match(await worker.text(), /ninepalace-shell-v24/);
+    assert.match(await worker.text(), /ninepalace-shell-v25/);
     const lobbyStyles = await fetch(`${baseUrl}/lobby.css`);
     assert.equal(lobbyStyles.status, 200);
     assert.match(lobbyStyles.headers.get("content-type"), /text\/css/);
@@ -105,10 +109,12 @@ test("local web server serves the PWA shell and same-origin game API", async () 
     const started = await fetch(`${baseUrl}/api/start`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ engineId: "fairy-stockfish" }),
+      body: JSON.stringify({ engineId: "fairy-stockfish", playerColor: "b", difficulty: "easy" }),
     });
     assert.equal((await started.json()).phase, "playing");
     assert.equal(startedEngineId, "fairy-stockfish");
+    assert.equal(startedSide, "b");
+    assert.equal(startedDifficulty, "easy");
 
     const legalMoves = await fetch(`${baseUrl}/api/legal-moves?square=b2`);
     assert.deepEqual(await legalMoves.json(), ["b2e2"]);

@@ -38,7 +38,7 @@ body[data-view="match"] main { width: min(1600px, 100%); height: calc(100dvh - 6
 .match-players .player { min-width: 0; gap: 8px; }
 .match-players .player > div:last-child { min-width: 0; }
 .match-players .avatar { flex: 0 0 36px; width: 36px; height: 36px; border-color: #ddd4c1; border-radius: 50%; color: #b75e65; background: #fff8eb; font: 21px "SimSun", serif; }
-.match-players .engine-avatar { border-color: #ccd0da; color: #4e5970; background: #f0f1f6; }
+.match-players .avatar[data-side="b"] { border-color: #ccd0da; color: #4e5970; background: #f0f1f6; }
 .match-players .player-name { overflow-wrap: anywhere; color: #3f4b62; font-size: 16px; line-height: 1.25; }
 .match-players .player-meta { margin-top: 4px; color: #788397; font-size: 12px; }
 .match-players .clock { grid-column: 1 / -1; max-width: none; padding: 7px 10px; border: 1px solid #e1e3eb; color: #68738b; background: #f6f6fa; font-size: 14px; text-align: center; }

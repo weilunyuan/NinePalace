@@ -77,6 +77,10 @@ function boardPoint(file, row) {
   return { x: 25 + file * 50, y: 25 + row * 50 };
 }
 
+function boardIsFlipped(svg = boardNode) {
+  return (svg === replayBoardNode ? currentReplay : state)?.playerColor === "b";
+}
+
 function pieceElement(piece, point, extraClass = "") {
   const group = svgElement("g", {
     class: `piece ${piece.color === "r" ? "red" : "black"}${extraClass ? ` ${extraClass}` : ""}`,
@@ -94,6 +98,10 @@ function pieceElement(piece, point, extraClass = "") {
 
 function drawBoard(svg, board, interactive, lastMove = null, movingMove = null, hintMove = null, pattern = null) {
   svg.replaceChildren();
+  const flipped = boardIsFlipped(svg);
+  svg.dataset.orientation = flipped ? "black" : "red";
+  // Keep real square IDs and upright artwork; only map their display positions.
+  const pointAt = (file, row) => boardPoint(flipped ? 8 - file : file, flipped ? 9 - row : row);
   const animateMove = Boolean(movingMove && !document.documentElement.classList.contains("reduce-motion"));
   if (interactive) {
     svg.setAttribute("aria-rowcount", "10");
@@ -122,7 +130,7 @@ function drawBoard(svg, board, interactive, lastMove = null, movingMove = null, 
     for (const square of [lastMove.slice(0, 2), lastMove.slice(2, 4)]) {
       const file = FILES.indexOf(square[0]);
       const row = 9 - Number(square[1]);
-      const point = boardPoint(file, row);
+      const point = pointAt(file, row);
       svg.append(svgElement("circle", { cx: point.x, cy: point.y, r: 20, class: "last-move-square", "aria-hidden": "true" }));
     }
   }
@@ -130,7 +138,7 @@ function drawBoard(svg, board, interactive, lastMove = null, movingMove = null, 
   if (interactive && selectedSquare) {
     const file = FILES.indexOf(selectedSquare[0]);
     const row = 9 - Number(selectedSquare[1]);
-    const point = boardPoint(file, row);
+    const point = pointAt(file, row);
     svg.append(svgElement("circle", { cx: point.x, cy: point.y, r: 21, class: "selected-square", "aria-hidden": "true" }));
   }
 
@@ -139,14 +147,14 @@ function drawBoard(svg, board, interactive, lastMove = null, movingMove = null, 
       const target = move.slice(2, 4);
       const file = FILES.indexOf(target[0]);
       const row = 9 - Number(target[1]);
-      const point = boardPoint(file, row);
+      const point = pointAt(file, row);
       const hasPiece = Boolean(board[row]?.[file]);
       svg.append(svgElement("circle", { cx: point.x, cy: point.y, r: hasPiece ? 19 : 7, class: hasPiece ? "legal-ring" : "legal-dot", "aria-hidden": "true" }));
     }
     if (keyboardSquare) {
       const file = FILES.indexOf(keyboardSquare[0]);
       const row = 9 - Number(keyboardSquare[1]);
-      const point = boardPoint(file, row);
+      const point = pointAt(file, row);
       svg.append(svgElement("circle", { cx: point.x, cy: point.y, r: 22, class: "cursor-square", "aria-hidden": "true" }));
     }
   }
@@ -156,11 +164,11 @@ function drawBoard(svg, board, interactive, lastMove = null, movingMove = null, 
   board.forEach((row, rowIndex) => row.forEach((piece, file) => {
     if (!piece) return;
     if (animateMove && movingMove.to === squareAt(file, rowIndex)) return;
-    const point = boardPoint(file, rowIndex);
+    const point = pointAt(file, rowIndex);
     pieces.append(pieceElement(piece, point));
   }));
   if (animateMove && movingMove.captured) {
-    capturedPiece = pieceElement(movingMove.captured, boardPoint(FILES.indexOf(movingMove.to[0]), 9 - Number(movingMove.to[1])));
+    capturedPiece = pieceElement(movingMove.captured, pointAt(FILES.indexOf(movingMove.to[0]), 9 - Number(movingMove.to[1])));
     pieces.append(capturedPiece);
   }
   svg.append(pieces);
@@ -168,7 +176,7 @@ function drawBoard(svg, board, interactive, lastMove = null, movingMove = null, 
   if (pattern) {
     for (const square of [...(pattern.squares || []), pattern.king]) {
       if (typeof square !== "string" || !/^[a-i][0-9]$/.test(square)) continue;
-      const point = boardPoint(FILES.indexOf(square[0]), 9 - Number(square[1]));
+      const point = pointAt(FILES.indexOf(square[0]), 9 - Number(square[1]));
       svg.append(svgElement("circle", { cx: point.x, cy: point.y, r: 22, class: `mate-piece-ring${square === pattern.king ? " mate-king-ring" : ""}`, "aria-hidden": "true" }));
     }
   }
@@ -179,8 +187,8 @@ function drawBoard(svg, board, interactive, lastMove = null, movingMove = null, 
     const toFile = FILES.indexOf(hintMove[2]);
     const toRow = 9 - Number(hintMove[3]);
     if (fromFile >= 0 && toFile >= 0) {
-      const from = boardPoint(fromFile, fromRow);
-      const to = boardPoint(toFile, toRow);
+      const from = pointAt(fromFile, fromRow);
+      const to = pointAt(toFile, toRow);
       const length = Math.hypot(to.x - from.x, to.y - from.y) || 1;
       const inset = Math.min(21, length / 3);
       const unitX = (to.x - from.x) / length;
@@ -218,13 +226,13 @@ function drawBoard(svg, board, interactive, lastMove = null, movingMove = null, 
     const fromRow = 9 - Number(movingMove.from[1]);
     const toFile = FILES.indexOf(movingMove.to[0]);
     const toRow = 9 - Number(movingMove.to[1]);
-    const fromPoint = boardPoint(fromFile, fromRow);
-    const toPoint = boardPoint(toFile, toRow);
+    const fromPoint = pointAt(fromFile, fromRow);
+    const toPoint = pointAt(toFile, toRow);
     const character = handCharacterFor(movingMove.piece.color);
-    const redSeat = movingMove.piece.color === "r";
-    const angle = redSeat ? 90 : -90;
-    const homeY = redSeat ? 560 : -60;
-    const homeX = redSeat ? 350 : 100;
+    const bottomSeat = movingMove.piece.color === (flipped ? "b" : "r");
+    const angle = bottomSeat ? 90 : -90;
+    const homeY = bottomSeat ? 560 : -60;
+    const homeX = bottomSeat ? 350 : 100;
     const entry = { x: Math.max(-70, Math.min(70, homeX - fromPoint.x)), y: homeY - fromPoint.y };
     const exit = { x: Math.max(-70, Math.min(70, homeX - toPoint.x)), y: homeY - toPoint.y };
     const distance = Math.hypot(toPoint.x - fromPoint.x, toPoint.y - fromPoint.y);
@@ -320,13 +328,13 @@ function drawBoard(svg, board, interactive, lastMove = null, movingMove = null, 
       { transform: "scale(1)", opacity: .16, filter: "blur(.6px)", offset: 1 },
     ], timing);
     hand.animate([
-      { opacity: 0, transform: `${translate(entry)} rotate(${redSeat ? -6 : 6}deg)`, offset: 0, easing: glide },
+      { opacity: 0, transform: `${translate(entry)} rotate(${bottomSeat ? -6 : 6}deg)`, offset: 0, easing: glide },
       { opacity: 1, transform: "translate(0, 0)", offset: .25, easing: glide },
       { opacity: 1, transform: lift(24, 1.02, -2), offset: .37, easing: "ease-in-out" },
       { opacity: 1, transform: lift(26, 1.02, 1), offset: .55, easing: glide },
       { opacity: 1, transform: "translate(0, 0)", offset: .73 },
       { opacity: 1, transform: "translate(0, 0)", offset: .8, easing: glide },
-      { opacity: 0, transform: `${translate(exit)} rotate(${redSeat ? -6 : 6}deg)`, offset: 1 },
+      { opacity: 0, transform: `${translate(exit)} rotate(${bottomSeat ? -6 : 6}deg)`, offset: 1 },
     ], timing);
     ripple.animate([
       { opacity: 0, transform: translate(toPoint), offset: 0 },
@@ -339,10 +347,13 @@ function drawBoard(svg, board, interactive, lastMove = null, movingMove = null, 
 
   if (interactive) {
     const hitAreas = svgElement("g", { class: "board-hit-areas" });
-    board.forEach((row, rowIndex) => {
-      const rowNode = svgElement("g", { role: "row", "aria-rowindex": rowIndex + 1 });
-      row.forEach((piece, file) => {
-        const point = boardPoint(file, rowIndex);
+    for (let displayRow = 0; displayRow < 10; displayRow += 1) {
+      const rowIndex = flipped ? 9 - displayRow : displayRow;
+      const rowNode = svgElement("g", { role: "row", "aria-rowindex": displayRow + 1 });
+      for (let displayFile = 0; displayFile < 9; displayFile += 1) {
+        const file = flipped ? 8 - displayFile : displayFile;
+        const piece = board[rowIndex][file];
+        const point = pointAt(file, rowIndex);
         const square = squareAt(file, rowIndex);
         const pieceName = piece ? window.npI18n.pieceName(piece.color, piece.type) : t("emptySquare");
         rowNode.append(svgElement("rect", {
@@ -355,15 +366,15 @@ function drawBoard(svg, board, interactive, lastMove = null, movingMove = null, 
           class: "board-square-hit",
           "data-square": square,
           role: "gridcell",
-          "aria-rowindex": rowIndex + 1,
-          "aria-colindex": file + 1,
+          "aria-rowindex": displayRow + 1,
+          "aria-colindex": displayFile + 1,
           "aria-selected": String(selectedSquare === square),
           tabindex: "-1",
           "aria-label": `${pieceName}, ${t("fileRank", { file: square[0], rank: square[1] })}`,
         }));
-      });
+      }
       hitAreas.append(rowNode);
-    });
+    }
     svg.append(hitAreas);
   }
   return movement ? { finished: movement.finished, landed: landing.finished } : null;
@@ -435,7 +446,7 @@ function persistFinishedGame(nextState) {
     return;
   }
   if (nextState.phase !== "finished" || !nextState.outcome) return;
-  const signature = JSON.stringify([nextState.engineId, nextState.history, nextState.outcome]);
+  const signature = JSON.stringify([nextState.engineId, nextState.playerColor, nextState.history, nextState.outcome]);
   if (signature === lastSavedGameSignature) return;
   try {
     const Game = window.NinePalaceXiangqi;
@@ -451,6 +462,7 @@ function persistFinishedGame(nextState) {
       reason: nextState.outcome.reason,
       pattern: nextState.outcome.pattern || null,
       engineId: nextState.engineId || "pikafish",
+      playerColor: nextState.playerColor || "r",
       moves: [...nextState.history],
       pgn: replay.pgn(),
       finalFen: replay.fen(),
@@ -462,8 +474,8 @@ function persistFinishedGame(nextState) {
   }
 }
 
-function outcomeTitleKey(winner) {
-  return winner === "red" ? "resultWin" : winner === "draw" ? "resultDraw" : "resultLoss";
+function outcomeTitleKey(winner, color = "r") {
+  return winner === "draw" ? "resultDraw" : winner === (color === "b" ? "black" : "red") ? "resultWin" : "resultLoss";
 }
 
 function outcomeReason(reason) {
@@ -503,7 +515,7 @@ function renderHistory() {
     button.dataset.replayId = record.id;
     const summary = document.createElement("div");
     const winner = document.createElement("strong");
-    winner.textContent = t(outcomeTitleKey(record.winner), { engine: engineNameFor(record.engineId) });
+    winner.textContent = t(outcomeTitleKey(record.winner, record.playerColor), { engine: engineNameFor(record.engineId) });
     const details = document.createElement("span");
     const date = new Date(record.finishedAt);
     const dateLabel = Number.isNaN(date.getTime()) ? "—" : date.toLocaleString(locale);
@@ -672,7 +684,7 @@ function renderReplay() {
   document.querySelector('[data-replay-step="previous"]').disabled = replayIndex === 0;
   document.querySelector('[data-replay-step="next"]').disabled = replayIndex >= moves.length;
   document.querySelector('[data-replay-step="last"]').disabled = replayIndex >= moves.length;
-  document.querySelector("#replay-outcome").textContent = `${t(outcomeTitleKey(currentReplay.winner), {
+  document.querySelector("#replay-outcome").textContent = `${t(outcomeTitleKey(currentReplay.winner, currentReplay.playerColor), {
     engine: engineNameFor(currentReplay.engineId),
   })} · ${outcomeReason(currentReplay.reason)}`;
 
@@ -780,7 +792,7 @@ function renderResult() {
   const playerWon = state.outcome.winner === (state.playerColor === "b" ? "black" : "red");
   document.querySelector("#result-title").textContent = isFriendRoom
     ? friendOutcomeTitle(state.outcome)
-    : t(outcomeTitleKey(state.outcome.winner), { engine: currentEngineName() });
+    : t(outcomeTitleKey(state.outcome.winner, state.playerColor), { engine: currentEngineName() });
   document.querySelector("#result-reason").textContent = outcomeReason(state.outcome.reason);
   const presentation = finishCopy();
   document.querySelector("#result-emblem").textContent = state.outcome.winner === "draw" ? "和"
@@ -794,7 +806,7 @@ function renderResult() {
   document.querySelector("#result-score").innerHTML = isFriendRoom
     ? t(state.outcome.winner === "draw" ? "friendScoreDraw" : playerWon ? "friendScoreWin" : "friendScoreLoss")
     : state.outcome.winner === "draw" ? t("scoreDraw", { engine: currentEngineName() })
-      : state.outcome.winner === "red" ? t("scoreWin", { engine: currentEngineName() })
+      : playerWon ? t("scoreWin", { engine: currentEngineName() })
         : t("scoreLoss", { engine: currentEngineName() });
   document.querySelector("#result-share-pgn").hidden = !isFriendRoom;
   document.querySelector('[data-screen="result"] [data-action="start"]').hidden = isFriendRoom;
@@ -887,6 +899,7 @@ finishDialog.addEventListener("close", () => {
 
 function finishedRecord() {
   return readSavedGames().find((record) => record.reason === state?.outcome?.reason
+    && (record.playerColor || "r") === (state.playerColor || "r")
     && record.moves.length === state.history.length && record.moves.every((move, index) => move === state.history[index]));
 }
 
@@ -940,6 +953,10 @@ function renderTutorial() {
 function render(nextState) {
   const previousState = state;
   state = nextState;
+  if ((previousState?.playerColor || "r") !== (state.playerColor || "r")) {
+    cancelBoardMotion();
+    keyboardSquare = state.playerColor === "b" ? "e9" : "e0";
+  }
   if (variation && (variation.baseKey !== realPositionKey() || !canUseVariation())) {
     stopVariation(false);
     toast(t("variationChanged"));
@@ -963,17 +980,19 @@ function render(nextState) {
   queueRealBoardMoves(previousState, state);
   drawCurrentBoard();
   const isFriendRoom = state.mode === "friend";
+  const blackPlayer = state.playerColor === "b";
+  const opponentColor = blackPlayer ? "r" : "b";
   const engineName = currentEngineName();
-  const redPlayer = isFriendRoom && state.playerColor === "r" ? t("youAsRed") : isFriendRoom ? t("friendAsRed") : t("guest");
-  const blackPlayer = isFriendRoom && state.playerColor === "b" ? t("youAsBlack") : isFriendRoom ? t("friendAsBlack") : engineName;
   document.querySelector('[data-i18n="matchEyebrow"]').textContent = isFriendRoom
     ? t("roomEyebrow") : t("matchEyebrow", { engine: engineName });
-  document.querySelector("#top-player-name").textContent = isFriendRoom ? blackPlayer : engineName;
-  document.querySelector("#bottom-player-name").textContent = isFriendRoom ? redPlayer : t("guest");
-  document.querySelector("#top-player-meta").textContent = t("blackSide");
-  document.querySelector("#bottom-player-meta").textContent = t("redSide");
-  document.querySelector("#top-avatar").textContent = "將";
-  document.querySelector("#bottom-avatar").textContent = "帥";
+  document.querySelector("#top-player-name").textContent = isFriendRoom ? t(blackPlayer ? "friendAsRed" : "friendAsBlack") : engineName;
+  document.querySelector("#bottom-player-name").textContent = isFriendRoom ? t(blackPlayer ? "youAsBlack" : "youAsRed") : t("guest");
+  document.querySelector("#top-player-meta").textContent = t(blackPlayer ? "redSide" : "blackSide");
+  document.querySelector("#bottom-player-meta").textContent = t(blackPlayer ? "blackSide" : "redSide");
+  document.querySelector("#top-avatar").textContent = PIECES[opponentColor].k;
+  document.querySelector("#bottom-avatar").textContent = PIECES[blackPlayer ? "b" : "r"].k;
+  document.querySelector("#top-avatar").dataset.side = opponentColor;
+  document.querySelector("#bottom-avatar").dataset.side = blackPlayer ? "b" : "r";
   document.querySelector("#experience-badge").textContent = isFriendRoom ? t("roomEyebrow") : t("localBadge");
   document.querySelector("#friend-room-panel").hidden = !isFriendRoom;
   if (isFriendRoom) {
@@ -1001,21 +1020,20 @@ function render(nextState) {
         : state.thinking ? "thinking" : "ready";
   document.querySelector("#turn-label").textContent = isFriendRoom
     ? state.phase === "waiting" ? t("roomWaiting") : state.turn === state.playerColor ? t("roomYourTurn") : t("roomWaitingTurn")
-    : state.inCheck
+    : state.inCheck && state.turn === (state.playerColor || "r")
     ? (window.npI18n.getLanguage() === "en" ? "Check · Respond carefully" : "将军 · 注意应对")
-    : state.turn === "r"
-      ? (state.history.length === 0 ? t("initialTurn") : t("userTurn"))
-      : (window.npI18n.getLanguage() === "en" ? "Black to move" : "黑方 · 走棋");
+    : state.thinking ? t("engineThinking")
+      : state.turn === (state.playerColor || "r") ? t("userTurn") : t("waitingEngine");
   const turnPill = document.querySelector("#turn-pill");
   turnPill.textContent = isFriendRoom && state.connection === "reconnecting" ? t("roomReconnecting")
     : state.phase === "waiting" ? t("roomWaiting")
     : state.phase !== "playing" ? t("gameFinished")
       : isFriendRoom ? state.turn === state.playerColor ? t("roomYourTurn") : t("roomWaitingTurn")
-        : state.thinking ? t("engineThinking") : state.turn === "r" ? t("userTurn") : t("waitingEngine");
+        : state.thinking ? t("engineThinking") : state.turn === (state.playerColor || "r") ? t("userTurn") : t("waitingEngine");
   turnPill.classList.toggle("active-turn", state.phase === "playing" && state.turn === (state.playerColor || "r") && !state.thinking && state.connection !== "reconnecting");
   turnPill.classList.toggle("engine-thinking", state.phase === "playing" && state.thinking);
   document.querySelector("#undo-button").hidden = isFriendRoom;
-  document.querySelector("#undo-button").disabled = isFriendRoom || state.phase !== "playing" || state.thinking || state.history.length < 2;
+  document.querySelector("#undo-button").disabled = isFriendRoom || state.phase !== "playing" || state.thinking || state.turn !== (state.playerColor || "r") || state.history.length < 2;
   document.querySelector("#resign-button").disabled = state.phase !== "playing" || state.thinking;
   document.querySelector("#retry-button").hidden = !state.engineFailure;
   renderMoves(state.history);
@@ -1075,7 +1093,7 @@ async function enterFriendRoom(result) {
 
 function realPositionKey(position = state) {
   if (!position) return "";
-  return JSON.stringify([position.mode, position.roomCode, position.phase, position.turn, position.history, position.finalFen || position.board]);
+  return JSON.stringify([position.mode, position.roomCode, position.playerColor, position.phase, position.turn, position.history, position.finalFen || position.board]);
 }
 
 function canUseVariation(position = state) {
@@ -1108,7 +1126,7 @@ function playNextBoardMove() {
     const animation = drawBoard(boardNode, move.board, true, `${move.from}${move.to}`, move, null, move.pattern);
     renderVariationUI();
     Promise.resolve(animation?.landed).then(() => {
-      if (boardMotion === motion) window.npSettings.playMoveSound({ engine: move.piece.color === "b" });
+      if (boardMotion === motion) window.npSettings.playMoveSound({ engine: move.opponent });
     }, () => {});
     Promise.resolve(animation?.finished).then(() => {
       if (boardMotion !== motion) return;
@@ -1146,6 +1164,7 @@ function makeBoardMove(move, before, after, opponent = false, pattern = null) {
 
 function queueRealBoardMoves(previous, next) {
   const continuous = previous && previous.mode === next.mode && previous.roomCode === next.roomCode
+    && (previous.playerColor || "r") === (next.playerColor || "r")
     && previous.engineId === next.engineId && previous.history.length <= next.history.length
     && previous.history.every((move, index) => move === next.history[index]);
   const advance = continuous && previous.phase === "playing" && next.history.length > previous.history.length;
@@ -1153,7 +1172,7 @@ function queueRealBoardMoves(previous, next) {
   if (!advance) return;
   if (document.body.dataset.view !== "match" || document.documentElement.classList.contains("reduce-motion")) {
     cancelBoardMotion();
-    window.npSettings.playMoveSound({ engine: next.turn === "r" });
+    window.npSettings.playMoveSound({ engine: next.turn === (next.playerColor || "r") });
     return;
   }
   // ponytail: one visual queue; engine/network state stays authoritative and never waits for animation.
@@ -1241,7 +1260,7 @@ function renderVariationUI() {
   boardNode.dataset.i18nAria = active ? "variationBoardInstructions" : "boardInstructions";
   boardNode.setAttribute("aria-label", t(boardNode.dataset.i18nAria));
   document.querySelector("#undo-button").disabled = active || submittingMove || moving || state.mode === "friend"
-    || state.phase !== "playing" || state.thinking || state.history.length < 2;
+    || state.phase !== "playing" || state.thinking || state.turn !== (state.playerColor || "r") || state.history.length < 2;
   document.querySelector("#resign-button").disabled = active || submittingMove || moving || state.phase !== "playing" || state.thinking;
   document.querySelector("#retry-button").disabled = active || submittingMove || moving;
   if (!variation) return;
@@ -1421,8 +1440,9 @@ boardNode.addEventListener("keydown", (event) => {
   if (event.key in offsets) {
     event.preventDefault();
     const [dx, dy] = offsets[event.key];
-    const nextFile = Math.max(0, Math.min(8, file + dx));
-    const nextRow = Math.max(0, Math.min(9, row + dy));
+    const direction = boardIsFlipped() ? -1 : 1;
+    const nextFile = Math.max(0, Math.min(8, file + dx * direction));
+    const nextRow = Math.max(0, Math.min(9, row + dy * direction));
     keyboardSquare = squareAt(nextFile, nextRow);
     drawCurrentBoard();
   } else if (event.key === "Enter" || event.key === " ") {
@@ -1455,10 +1475,13 @@ document.querySelectorAll("[data-action]").forEach((button) => button.addEventLi
     case "start":
       tutorialActive = false;
       roomInviteUrls = [];
-      selectedSquare = null;
-      legalTargets = [];
+      stopVariation(false);
+      cancelBoardMotion();
+      clearBoardSelection();
       {
-      const nextState = await window.ninepalace.startGame(window.npSettings.getPreferences().engineId);
+        const preferences = window.npSettings.getPreferences();
+        keyboardSquare = preferences.playerColor === "b" ? "e9" : "e0";
+        const nextState = await window.ninepalace.startGame(preferences.engineId, preferences.playerColor, preferences.difficulty);
         render(nextState);
         if (nextState.phase === "playing") {
           showScreen("match");
@@ -1496,10 +1519,13 @@ document.querySelectorAll("[data-action]").forEach((button) => button.addEventLi
     case "tutorial":
       tutorialActive = true;
       tutorialStep = "select";
-      selectedSquare = null;
-      legalTargets = [];
+      stopVariation(false);
+      cancelBoardMotion();
+      clearBoardSelection();
+      keyboardSquare = "e0";
       {
-        const nextState = await window.ninepalace.startGame(window.npSettings.getPreferences().engineId);
+        const preferences = window.npSettings.getPreferences();
+        const nextState = await window.ninepalace.startGame(preferences.engineId, "r", preferences.difficulty);
         if (nextState.phase !== "playing") {
           tutorialActive = false;
           showScreen("home");

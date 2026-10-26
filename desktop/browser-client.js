@@ -131,10 +131,10 @@
         return lastState || offlineState(error.message || undefined);
       }
     },
-    async startGame(engineId) {
+    async startGame(engineId, playerColor, difficulty) {
       try {
         storeRoomSession(null);
-        const state = await post("/api/start", { engineId });
+        const state = await post("/api/start", { engineId, playerColor, difficulty });
         publish(state);
         return state;
       } catch (error) {

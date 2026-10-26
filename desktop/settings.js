@@ -6,6 +6,7 @@
   const openButton = document.querySelector("#settings-open");
   const engineSelect = document.querySelector("#engine-setting");
   const difficultySelect = document.querySelector("#difficulty-setting");
+  const sideSelect = document.querySelector("#player-side");
   const motionSelect = document.querySelector("#motion-setting");
   const soundToggle = document.querySelector("#sound-toggle");
   let audioContext = null;
@@ -17,13 +18,14 @@
       return {
         engineId: ["pikafish", "fairy-stockfish"].includes(saved.engineId) ? saved.engineId : "pikafish",
         difficulty: ["beginner", "easy", "normal", "strong"].includes(saved.difficulty) ? saved.difficulty : "beginner",
+        playerColor: saved.playerColor === "b" ? "b" : "r",
         motion: ["system", "reduce", "full"].includes(saved.motion) ? saved.motion : "system",
         // The previous version defaulted sound off. Enabling it on upgrade ensures
         // existing users hear the requested piece-drop cue on their next game.
         sound: current ? saved.sound === true : true,
       };
     } catch {
-      return { engineId: "pikafish", difficulty: "beginner", motion: "system", sound: true };
+      return { engineId: "pikafish", difficulty: "beginner", playerColor: "r", motion: "system", sound: true };
     }
   }
 
@@ -43,6 +45,8 @@
   function updateControls() {
     engineSelect.value = preferences.engineId;
     difficultySelect.value = preferences.difficulty;
+    sideSelect.value = preferences.playerColor;
+    document.querySelector(".lobby-start-emblem").textContent = preferences.playerColor === "b" ? "將" : "帥";
     motionSelect.value = preferences.motion;
     soundToggle.checked = preferences.sound;
   }
@@ -126,6 +130,11 @@
   difficultySelect.addEventListener("change", () => {
     preferences.difficulty = difficultySelect.value;
     savePreferences();
+  });
+  sideSelect.addEventListener("change", () => {
+    preferences.playerColor = sideSelect.value === "b" ? "b" : "r";
+    savePreferences();
+    updateControls();
   });
   motionSelect.addEventListener("change", () => {
     preferences.motion = motionSelect.value;

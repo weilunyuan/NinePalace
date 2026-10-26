@@ -2,7 +2,7 @@ const { contextBridge, ipcRenderer } = require("electron");
 
 contextBridge.exposeInMainWorld("ninepalace", {
   getState: () => ipcRenderer.invoke("game:get-state"),
-  startGame: (engineId) => ipcRenderer.invoke("game:start", engineId),
+  startGame: (engineId, playerColor, difficulty) => ipcRenderer.invoke("game:start", engineId, playerColor, difficulty),
   getLegalMoves: (square) => ipcRenderer.invoke("game:get-legal-moves", square),
   submitMove: (move, difficulty) => ipcRenderer.invoke("game:move", move, difficulty),
   undo: () => ipcRenderer.invoke("game:undo"),

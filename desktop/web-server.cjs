@@ -224,7 +224,7 @@ function createWebServer({ api, friendRooms = null, friendRoomsOnly = false, des
         const body = await readJson(request);
         let value;
         switch (url.pathname) {
-          case "/api/start": value = await api.startGame(body.engineId); break;
+          case "/api/start": value = await api.startGame(body.engineId, body.playerColor, body.difficulty); break;
           case "/api/move": value = await api.submitMove(body.move, body.difficulty); break;
           case "/api/undo": value = await api.undo(); break;
           case "/api/resign": value = await api.resign(); break;
