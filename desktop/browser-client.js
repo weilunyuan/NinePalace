@@ -141,8 +141,8 @@
         return offlineState(`无法连接本地游戏服务：${error.message}。请先运行 npm run web。`);
       }
     },
-    async createRoom() {
-      const result = await post("/api/rooms");
+    async createRoom(playerColor) {
+      const result = await post("/api/rooms", { playerColor });
       return setRoomResult(result);
     },
     async joinRoom(code) {

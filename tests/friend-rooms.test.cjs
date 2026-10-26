@@ -38,7 +38,32 @@ test("friend rooms assign seats, enforce turns, resume sessions, and share state
   assert.equal(rooms.getState(host.roomCode, host.token).phase, "finished");
 });
 
-test("friend-room HTTP API protects sessions and streams authoritative updates", async () => {
+test("a black host reserves Black, the guest takes Red, and both seats survive reconnects", () => {
+  const rooms = createFriendRooms();
+  assert.throws(() => rooms.create("invalid"), { statusCode: 400 });
+  const host = rooms.create("b");
+  assert.equal(host.state.playerColor, "b");
+  assert.deepEqual(host.state.players, { red: false, black: true });
+  assert.equal(host.state.phase, "waiting");
+  assert.deepEqual(rooms.getLegalMoves(host.roomCode, host.token, "b7"), []);
+  assert.equal(rooms.submitMove(host.roomCode, host.token, "b7e7").ok, false);
+  assert.throws(() => rooms.getState(host.roomCode, "invalid"), { statusCode: 403 });
+  const guest = rooms.join(host.roomCode);
+  assert.equal(guest.state.playerColor, "r");
+  assert.deepEqual(guest.state.players, { red: true, black: true });
+  assert.equal(guest.state.turn, "r");
+  assert.throws(() => rooms.join(host.roomCode), { statusCode: 409 });
+  assert.equal(rooms.submitMove(host.roomCode, host.token, "b7e7").ok, false);
+  assert.ok(rooms.getLegalMoves(host.roomCode, guest.token, "b2").includes("b2e2"));
+  assert.equal(rooms.submitMove(host.roomCode, guest.token, "b2e2").ok, true);
+  assert.equal(rooms.submitMove(host.roomCode, host.token, "b7e7").ok, true);
+  assert.equal(rooms.join(host.roomCode, host.token).state.playerColor, "b");
+  assert.equal(rooms.join(host.roomCode, guest.token).state.playerColor, "r");
+  assert.deepEqual(rooms.getState(host.roomCode, host.token).history, ["b2e2", "b7e7"]);
+  assert.equal(rooms.resign(host.roomCode, host.token).state.outcome.winner, "red");
+});
+
+for (const hostColor of ["r", "b"]) test(`friend-room HTTP API protects sessions and streams updates with a ${hostColor} host`, async () => {
   const rooms = createFriendRooms();
   const server = createWebServer({
     api: {
@@ -57,12 +82,18 @@ test("friend-room HTTP API protects sessions and streams authoritative updates",
   });
 
   try {
-    const createdResponse = await post("/api/rooms");
+    assert.equal((await post("/api/rooms", { playerColor: "invalid" })).status, 400);
+    const createdResponse = await post("/api/rooms", { playerColor: hostColor });
     assert.equal(createdResponse.status, 201);
     const host = await createdResponse.json();
+    assert.equal(host.state.playerColor, hostColor);
     const guestResponse = await post(`/api/rooms/${host.roomCode}/join`);
     assert.equal(guestResponse.status, 200);
     const guest = await guestResponse.json();
+    const guestColor = hostColor === "r" ? "b" : "r";
+    assert.equal(guest.state.playerColor, guestColor);
+    const red = hostColor === "r" ? host : guest;
+    const black = hostColor === "b" ? host : guest;
 
     const unauthorized = await fetch(`${baseUrl}/api/rooms/${host.roomCode}`);
     assert.equal(unauthorized.status, 401);
@@ -78,11 +109,11 @@ test("friend-room HTTP API protects sessions and streams authoritative updates",
     assert.equal(streamResponse.headers.get("content-type"), "text/event-stream; charset=utf-8");
     const reader = streamResponse.body.getReader();
     const firstEvent = new TextDecoder().decode((await reader.read()).value);
-    assert.match(firstEvent, /"playerColor":"b"/);
+    assert.equal(JSON.parse(firstEvent.slice("data: ".length).trim()).playerColor, guestColor);
 
-    const wrongTurn = await post(`/api/rooms/${host.roomCode}/move`, { token: guest.token, move: "b7b6" });
+    const wrongTurn = await post(`/api/rooms/${host.roomCode}/move`, { token: black.token, move: "b7b6" });
     assert.equal((await wrongTurn.json()).ok, false);
-    const accepted = await post(`/api/rooms/${host.roomCode}/move`, { token: host.token, move: "b2e2" });
+    const accepted = await post(`/api/rooms/${host.roomCode}/move`, { token: red.token, move: "b2e2" });
     assert.equal((await accepted.json()).ok, true);
     const update = new TextDecoder().decode((await reader.read()).value);
     assert.match(update, /"history":\["b2e2"\]/);

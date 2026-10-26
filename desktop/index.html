@@ -248,6 +248,23 @@
         <p class="settings-note" data-i18n="settingsSaved">这些偏好保存在本机。</p>
       </form>
     </dialog>
+    <dialog id="room-create-dialog" class="settings-dialog" aria-labelledby="room-create-title" aria-describedby="room-create-help">
+      <form method="dialog">
+        <div class="settings-heading">
+          <div><div class="eyebrow" data-i18n="roomEyebrow">好友对局</div><h2 id="room-create-title" data-i18n="createRoom">创建好友房</h2></div>
+          <button class="button secondary small" type="submit" data-i18n-aria="closeRoomDialog" aria-label="关闭房间窗口">×</button>
+        </div>
+        <label class="settings-row" for="room-create-side">
+          <span><strong data-i18n="playerSideTitle">执棋方</strong></span>
+          <select id="room-create-side" name="playerColor">
+            <option value="r" data-i18n="playRed">红方 · 先手</option>
+            <option value="b" data-i18n="playBlack">黑方 · 后手</option>
+          </select>
+        </label>
+        <p id="room-create-help" class="settings-note" data-i18n="roomCreateHelp">红方先行；好友加入后自动执另一方。</p>
+        <button class="button primary" id="room-create-submit" type="button" data-i18n="createRoom">创建好友房</button>
+      </form>
+    </dialog>
     <dialog id="room-dialog" class="settings-dialog room-dialog" aria-labelledby="room-dialog-title">
       <form method="dialog">
         <div class="settings-heading">

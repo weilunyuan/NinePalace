@@ -154,7 +154,7 @@ async function analyzeSavedGameNow(moves, onProgress, engineId) {
 
 function publish() {
   const current = snapshot();
-  if (mainWindow && !mainWindow.isDestroyed()) {
+  if (mainWindow && !mainWindow.isDestroyed() && !activeDesktopRoom) {
     mainWindow.webContents.send("game:state", current);
   }
   for (const listener of webStateListeners) listener(current);
@@ -378,9 +378,9 @@ ipcMain.handle("game:retry-engine", (_event, difficulty) => retryEngine(difficul
 ipcMain.handle("game:analyze", async (event, recordId, moves, engineId) => analyzeSavedGame(moves, (progress) => {
   if (!event.sender.isDestroyed()) event.sender.send("game:analysis-progress", { recordId, ...progress });
 }, engineId));
-ipcMain.handle("room:create", async () => {
+ipcMain.handle("room:create", async (_event, color) => {
   const inviteUrls = await startFriendRoomServer();
-  const session = friendRooms.create();
+  const session = friendRooms.create(color);
   activateDesktopRoom(session.roomCode, session.token);
   return { ...session, inviteUrls };
 });
@@ -961,10 +961,23 @@ async function runFriendRoomUiSmokeTest() {
   let guestWindow = null;
   try {
     await createWindow(true, { partition: "ninepalace-friend-host-smoke" });
+    for (const hostColor of ["r", "b"]) {
     await mainWindow.webContents.executeJavaScript(`(async () => {
+      showScreen('home');
+      const prior = await window.ninepalace.getState();
       const button = document.querySelector('[data-action="create-room"]');
       if (!button) throw new Error('首页缺少创建好友房入口');
       button.click();
+      const dialog = document.querySelector('#room-create-dialog');
+      if (!dialog.open) throw new Error('创建好友房时未显示选边窗口');
+      dialog.querySelector('button[type="submit"]').click();
+      if (dialog.open || (await window.ninepalace.getState()).roomCode !== prior.roomCode) throw new Error('取消选边仍创建了房间');
+      button.click();
+      document.querySelector('#room-create-side').value = ${JSON.stringify(hostColor)};
+      const submit = document.querySelector('#room-create-submit');
+      submit.click();
+      if (!submit.disabled) throw new Error('创建房间没有防止重复提交');
+      submit.click();
       const deadline = Date.now() + 10000;
       while (Date.now() < deadline) {
         const state = await window.ninepalace.getState();
@@ -974,33 +987,44 @@ async function runFriendRoomUiSmokeTest() {
       throw new Error('创建好友房后没有进入等待页面');
     })()`);
     let hostState = await waitForRoomState(mainWindow, (state) => state?.mode === "friend" && state.phase === "waiting", "好友房没有创建成功");
+    if (hostState.playerColor !== hostColor || hostState.players.red !== (hostColor === "r")
+      || hostState.players.black !== (hostColor === "b")) throw new Error("房主所选席位未正确保留");
     if (!/^[A-Z0-9]{6}$/.test(hostState.roomCode)) throw new Error(`房间码格式无效：${hostState.roomCode}`);
     if (!friendRoomServer?.listening) throw new Error("创建房间后没有启动局域网邀请服务");
+    publish();
+    const hostStillInRoom = await mainWindow.webContents.executeJavaScript("state?.mode === 'friend' && boardNode.dataset.orientation === (state.playerColor === 'b' ? 'black' : 'red')");
+    if (!hostStillInRoom) throw new Error("本地人机状态覆盖了好友房或视角错误");
 
     const inviteUrl = `http://127.0.0.1:${friendRoomServer.address().port}/?room=${encodeURIComponent(hostState.roomCode)}`;
+    guestWindow?.close();
     guestWindow = new BrowserWindow({
       width: 1100,
       height: 850,
       show: false,
-      webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true, backgroundThrottling: false, offscreen: true, partition: "ninepalace-friend-guest-smoke" },
+      webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true, backgroundThrottling: false, offscreen: true, partition: `ninepalace-friend-guest-smoke-${hostColor}` },
     });
     await guestWindow.loadURL(inviteUrl);
     const guestState = await waitForRoomState(guestWindow, (state) => state?.mode === "friend" && state.phase === "playing", "访客无法通过邀请链接加入");
-    if (guestState.playerColor !== "b" || guestState.roomCode !== hostState.roomCode) throw new Error("访客没有取得黑方席位");
-    hostState = await waitForRoomState(mainWindow, (state) => state.players?.black, "房主没有收到访客加入事件");
+    const guestColor = hostColor === "r" ? "b" : "r";
+    if (guestState.playerColor !== guestColor || guestState.roomCode !== hostState.roomCode) throw new Error("好友没有自动取得另一方席位");
+    hostState = await waitForRoomState(mainWindow, (state) => state.phase === "playing" && state.players?.red && state.players?.black, "房主没有收到好友加入事件");
+    const redWindow = hostColor === "r" ? mainWindow : guestWindow;
+    const blackWindow = hostColor === "b" ? mainWindow : guestWindow;
+    const wrongTurn = await blackWindow.webContents.executeJavaScript("window.ninepalace.submitMove('b7b6')");
+    if (wrongTurn.ok) throw new Error("执黑玩家可以抢先走棋");
 
-    await mainWindow.webContents.executeJavaScript(`(async () => {
+    await redWindow.webContents.executeJavaScript(`(async () => {
       const board = document.querySelector('#game-board');
       board.querySelector('[data-square="b2"]').dispatchEvent(new MouseEvent('click', { bubbles: true }));
       const deadline = Date.now() + 3000;
       while (!board.querySelector('.legal-dot') && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 20));
       const target = board.querySelector('[data-square="e2"]');
-      if (!board.querySelector('.legal-dot') || !target) throw new Error('房主无法选择合法着法');
+      if (!board.querySelector('.legal-dot') || !target) throw new Error('执红玩家无法选择合法着法');
       target.dispatchEvent(new MouseEvent('click', { bubbles: true }));
     })()`);
-    await waitForRoomState(guestWindow, (state) => state.history?.length === 1 && state.turn === "b", "访客没有收到房主的着法同步");
+    await waitForRoomState(blackWindow, (state) => state.history?.length === 1 && state.turn === "b", "执黑玩家没有收到红方着法同步");
 
-    await guestWindow.webContents.executeJavaScript(`(async () => {
+    await blackWindow.webContents.executeJavaScript(`(async () => {
       const board = document.querySelector('#game-board');
       const waitForLanding = async () => {
         const deadline = Date.now() + 5000;
@@ -1015,7 +1039,7 @@ async function runFriendRoomUiSmokeTest() {
         await waitForLanding();
       }
       if (document.querySelectorAll('#variation-line [data-variation-ply]').length !== 2) throw new Error('黑方玩家无法自行推演双方着法');
-      if ((await window.ninepalace.getState()).history.length !== 1) throw new Error('访客推演改变了好友实战');
+      if ((await window.ninepalace.getState()).history.length !== 1) throw new Error('黑方推演改变了好友实战');
       document.querySelector('#variation-exit').click();
       const moves = await window.ninepalace.getLegalMoves('b7');
       const move = moves.find((candidate) => candidate === 'b7b6');
@@ -1029,10 +1053,12 @@ async function runFriendRoomUiSmokeTest() {
     hostState = await waitForRoomState(mainWindow, (state) => state.history?.length === 2 && state.turn === "r", "房主没有收到访客的着法同步");
 
     await guestWindow.loadURL(inviteUrl);
-    const resumed = await waitForRoomState(guestWindow, (state) => state.history?.length === 2 && state.playerColor === "b", "访客刷新后无法恢复房间");
+    const resumed = await waitForRoomState(guestWindow, (state) => state.history?.length === 2 && state.playerColor === guestColor, "好友刷新后无法恢复原席位");
     if (resumed.roomCode !== hostState.roomCode) throw new Error("重连后恢复到了错误房间");
+    await mainWindow.loadFile(path.join(__dirname, "index.html"));
+    await waitForRoomState(mainWindow, (state) => state.roomCode === hostState.roomCode && state.playerColor === hostColor && state.history.length === 2, "房主刷新后没有恢复原席位");
 
-    await mainWindow.webContents.executeJavaScript(`(async () => {
+    await redWindow.webContents.executeJavaScript(`(async () => {
       const board = document.querySelector('#game-board');
       const waitForLanding = async () => {
         const deadline = Date.now() + 5000;
@@ -1046,16 +1072,16 @@ async function runFriendRoomUiSmokeTest() {
         board.querySelector('[data-square="' + move.slice(2) + '"]').dispatchEvent(new MouseEvent('click', { bubbles: true }));
         await waitForLanding();
       }
-      if (document.querySelectorAll('#variation-line [data-variation-ply]').length !== 2) throw new Error('房主未进入私人推演');
+      if (document.querySelectorAll('#variation-line [data-variation-ply]').length !== 2) throw new Error('红方未进入私人推演');
     })()`);
 
-    await guestWindow.webContents.executeJavaScript(`(() => {
+    await blackWindow.webContents.executeJavaScript(`(() => {
       window.confirm = () => true;
       document.querySelector('#resign-button').click();
     })()`);
     const finalHostState = await waitForRoomState(mainWindow, (state) => state.phase === "finished", "认输后房主没有收到结束状态");
     const finalGuestState = await waitForRoomState(guestWindow, (state) => state.phase === "finished", "访客页面没有显示对局结果");
-    const shareReady = await guestWindow.webContents.executeJavaScript(`(async () => {
+    const shareReady = await blackWindow.webContents.executeJavaScript(`(async () => {
       const deadline = Date.now() + 6000;
       while (!document.querySelector('[data-screen="result"]').classList.contains('active') && Date.now() < deadline) {
         await new Promise(resolve => setTimeout(resolve, 25));
@@ -1071,12 +1097,29 @@ async function runFriendRoomUiSmokeTest() {
       || !shareReady.visible || !shareReady.resultScreen || !shareReady.correctTitle || !shareReady.pgn.includes("b2e2")) {
       throw new Error(`好友房结果或棋谱分享未就绪：${JSON.stringify(shareReady)}`);
     }
-    const hostTitleCorrect = await mainWindow.webContents.executeJavaScript("document.querySelector('#result-title').textContent === window.npI18n.t('friendWin')");
-    if (!hostTitleCorrect) throw new Error("房主的获胜结算标题不正确");
-    const trialCleared = await mainWindow.webContents.executeJavaScript("document.querySelector('#variation-panel').hidden && document.querySelector('#variation-toggle').getAttribute('aria-pressed') === 'false'");
+    const redTitleCorrect = await redWindow.webContents.executeJavaScript("document.querySelector('#result-title').textContent === window.npI18n.t('friendWin')");
+    if (!redTitleCorrect) throw new Error("红方的获胜结算标题不正确");
+    const trialCleared = await redWindow.webContents.executeJavaScript("document.querySelector('#variation-panel').hidden && document.querySelector('#variation-toggle').getAttribute('aria-pressed') === 'false'");
     if (!trialCleared || finalHostState.history.length !== 2) throw new Error("好友结束对局后没有清除私人推演或实战着法被污染");
 
-    console.log("NINEPALACE_FRIEND_ROOM_SMOKE_OK create=ok invite=ok join=ok authoritative-turns=ok sync=ok reconnect=ok result=ok pgn=ok variation=private+black-seat+live-end-cancel");
+    console.log(`NINEPALACE_FRIEND_SIDE_OK host=${hostColor} guest=${guestColor} reconnect=both-seats result=both-perspectives`);
+    }
+
+    // Exercise browser-host creation too; desktop then joins the reserved opposite seat.
+    await guestWindow.webContents.executeJavaScript(`(() => {
+      showScreen('home');
+      window.npI18n.setLanguage('en');
+      document.querySelector('[data-action="create-room"]').click();
+      if (!document.querySelector('#room-create-dialog').open
+        || document.querySelector('#room-create-title').textContent !== 'Create friend room') throw new Error('网页创建好友房窗口或英文文案缺失');
+      document.querySelector('#room-create-side').value = 'b';
+      document.querySelector('#room-create-submit').click();
+    })()`);
+    const browserHost = await waitForRoomState(guestWindow, state => state.mode === "friend" && state.phase === "waiting" && state.playerColor === "b", "网页创建好友房未采用执黑选择");
+    await mainWindow.webContents.executeJavaScript(`window.ninepalace.joinRoom(${JSON.stringify(browserHost.roomCode)}).then(enterFriendRoom)`);
+    await waitForRoomState(mainWindow, state => state.roomCode === browserHost.roomCode && state.phase === "playing" && state.playerColor === "r", "桌面加入网页好友房未取得红方");
+    await waitForRoomState(guestWindow, state => state.roomCode === browserHost.roomCode && state.phase === "playing" && state.players.red, "网页房主未收到红方加入");
+    console.log("NINEPALACE_FRIEND_ROOM_SMOKE_OK create=dialog+cancel+both-sides web-host=black invite=ok join=opposite-seat authoritative-turns=ok sync=ok reconnect=both-seats result=ok pgn=ok variation=private+black-seat+live-end-cancel");
     guestWindow.close();
     guestWindow = null;
     mainWindow?.close();
@@ -1103,7 +1146,7 @@ app.whenReady().then(async () => {
       const pwa = await mainWindow.webContents.executeJavaScript(`(async () => {
         if (!('serviceWorker' in navigator)) throw new Error('当前浏览器没有 Service Worker 支持');
         const registration = await navigator.serviceWorker.ready;
-        const cache = await caches.open('ninepalace-shell-v25');
+        const cache = await caches.open('ninepalace-shell-v26');
         const required = ['/', '/styles.css', '/lobby.css', '/match.css', '/renderer.js', '/i18n.js', '/character-select.js', '/settings.js', '/chinese-notation.js', '/manifest.webmanifest', '/assets/ninepalace-red-rook-girl.png', '/assets/ninepalace-red-horse-girl.png', '/assets/ninepalace-black-rook-loli.png', '/assets/ninepalace-black-horse-loli.png', '/vendor/xiangqi-js/xiangqi.js'];
         required.push(...['red-rook', 'red-horse', 'black-rook', 'black-horse'].map(id => '/assets/ninepalace-hand-' + id + '.png'));
         const missing = [];

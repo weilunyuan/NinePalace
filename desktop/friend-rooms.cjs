@@ -51,7 +51,7 @@ function createFriendRooms({ now = Date.now, makeCode = null, makeToken = null }
 
   function getSeat(room, token) {
     if (!token || typeof token !== "string") throw roomError(401, "房间会话已失效，请重新加入");
-    if (room.players.r.token === token) return "r";
+    if (room.players.r?.token === token) return "r";
     if (room.players.b?.token === token) return "b";
     throw roomError(403, "这个设备不属于该房间");
   }
@@ -76,7 +76,7 @@ function createFriendRooms({ now = Date.now, makeCode = null, makeToken = null }
       mode: "friend",
       roomCode: room.code,
       playerColor,
-      players: { red: true, black: Boolean(room.players.b) },
+      players: { red: Boolean(room.players.r), black: Boolean(room.players.b) },
       pgn: room.game.pgn(),
       finalFen: room.game.fen(),
     };
@@ -104,7 +104,8 @@ function createFriendRooms({ now = Date.now, makeCode = null, makeToken = null }
     if (pattern) room.outcome.pattern = pattern;
   }
 
-  function create() {
+  function create(playerColor = "r") {
+    if (playerColor !== "r" && playerColor !== "b") throw roomError(400, "请选择执红或执黑");
     cleanup();
     if (rooms.size >= MAX_ROOMS) throw roomError(503, "当前房间较多，请稍后再试");
     let code = newCode();
@@ -120,7 +121,7 @@ function createFriendRooms({ now = Date.now, makeCode = null, makeToken = null }
       game: new Xiangqi(),
       phase: "waiting",
       outcome: null,
-      players: { r: { token }, b: null },
+      players: { r: playerColor === "r" ? { token } : null, b: playerColor === "b" ? { token } : null },
       listeners: new Map(),
       updatedAt: now(),
     };
@@ -135,9 +136,9 @@ function createFriendRooms({ now = Date.now, makeCode = null, makeToken = null }
       room.updatedAt = now();
       return { roomCode: room.code, token: existingToken, state: snapshot(room, existingToken), resumed: true };
     }
-    if (room.phase !== "waiting" || room.players.b) throw roomError(409, "房间已经有两位玩家");
+    if (room.phase !== "waiting" || (room.players.r && room.players.b)) throw roomError(409, "房间已经有两位玩家");
     const token = newToken();
-    room.players.b = { token };
+    room.players[room.players.r ? "b" : "r"] = { token };
     room.phase = "playing";
     publish(room);
     return { roomCode: room.code, token, state: snapshot(room, token), resumed: false };

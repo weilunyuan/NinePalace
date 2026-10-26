@@ -66,7 +66,7 @@ test("local web server serves the PWA shell and same-origin game API", async () 
 
     const worker = await fetch(`${baseUrl}/service-worker.js`);
     assert.equal(worker.status, 200);
-    assert.match(await worker.text(), /ninepalace-shell-v25/);
+    assert.match(await worker.text(), /ninepalace-shell-v26/);
     const lobbyStyles = await fetch(`${baseUrl}/lobby.css`);
     assert.equal(lobbyStyles.status, 200);
     assert.match(lobbyStyles.headers.get("content-type"), /text\/css/);

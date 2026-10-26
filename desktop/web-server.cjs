@@ -175,8 +175,8 @@ function createWebServer({ api, friendRooms = null, friendRoomsOnly = false, des
           if (!allowRoomOperation(request, "create", 20, 60 * 1000)) {
             return sendJson(response, 429, { message: "创建房间请求过于频繁，请稍后再试" });
           }
-          await readJson(request);
-          const result = friendRooms.create();
+          const body = await readJson(request);
+          const result = friendRooms.create(body?.playerColor);
           const inviteUrls = typeof api.getInviteUrls === "function" ? api.getInviteUrls(request) : [];
           return sendJson(response, 201, { ...result, inviteUrls });
         }

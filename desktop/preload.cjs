@@ -9,7 +9,7 @@ contextBridge.exposeInMainWorld("ninepalace", {
   resign: () => ipcRenderer.invoke("game:resign"),
   retryEngine: (difficulty) => ipcRenderer.invoke("game:retry-engine", difficulty),
   analyzeGame: (recordId, moves, engineId) => ipcRenderer.invoke("game:analyze", recordId, moves, engineId),
-  createRoom: () => ipcRenderer.invoke("room:create"),
+  createRoom: (playerColor) => ipcRenderer.invoke("room:create", playerColor),
   joinRoom: (code) => ipcRenderer.invoke("room:join", code),
   leaveRoom: () => ipcRenderer.invoke("room:leave"),
   onState: (listener) => {

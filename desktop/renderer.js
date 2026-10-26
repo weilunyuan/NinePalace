@@ -1493,12 +1493,8 @@ document.querySelectorAll("[data-action]").forEach((button) => button.addEventLi
       }
       break;
     case "create-room":
-      try {
-        const result = await window.ninepalace.createRoom();
-        await enterFriendRoom(result);
-      } catch (error) {
-        toast(error.message || t("roomCreateFailed"));
-      }
+      document.querySelector("#room-create-dialog").showModal();
+      document.querySelector("#room-create-side").focus();
       break;
     case "join-room":
       document.querySelector("#room-dialog").showModal();
@@ -1561,6 +1557,21 @@ document.querySelector("#lesson-exit").addEventListener("click", () => {
   renderTutorial();
   renderVariationUI();
   boardNode.focus();
+});
+
+document.querySelector("#room-create-submit").addEventListener("click", async (event) => {
+  const button = event.currentTarget;
+  if (button.disabled) return;
+  button.disabled = true;
+  try {
+    const result = await window.ninepalace.createRoom(document.querySelector("#room-create-side").value);
+    document.querySelector("#room-create-dialog").close();
+    await enterFriendRoom(result);
+  } catch (error) {
+    toast(error.message || t("roomCreateFailed"));
+  } finally {
+    button.disabled = false;
+  }
 });
 
 document.querySelector("#room-join-submit").addEventListener("click", async () => {
