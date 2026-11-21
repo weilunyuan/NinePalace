@@ -8,7 +8,7 @@ const MOVE = /^[a-i][0-9][a-i][0-9]$/;
 const DISCONNECTED = { ok: false, message: "远程房间暂时无法落子" };
 const RELAY_ERRORS = new Set(["remoteBusy", "remoteRoomMissing", "remoteRoomFull", "remoteHostOffline", "remoteRoomClosed"]);
 
-function connectRemoteRoom({ url, color, code, onState = () => {} }) {
+function connectRemoteRoom({ url, color, code, hostKey, onState = () => {}, onEnd = () => {} }) {
   const endpoint = relayAddress(url);
   const hosting = code === undefined;
   if (!hosting && (typeof code !== "string" || !ROOM_CODE.test(code))) throw remoteError("remoteBadCode");
@@ -72,6 +72,7 @@ function connectRemoteRoom({ url, color, code, onState = () => {} }) {
     if (leave && registered) send({ type: "leave" });
     socket?.close();
     reject(remoteError(reason));
+    onEnd();
     if (board) show(board, "closed");
   }
 
@@ -162,11 +163,16 @@ function connectRemoteRoom({ url, color, code, onState = () => {} }) {
     });
     socket = wire;
     wire.on("error", () => {});
+    wire.on("unexpected-response", (_request, response) => {
+      response.destroy();
+      if (!hosting && !relayToken && response.statusCode === 404) end("remoteRoomMissing");
+      else wire.terminate();
+    });
     wire.on("ping", () => { lastPing = Date.now(); });
     wire.on("open", () => {
       lastPing = Date.now();
       if (relayToken) send({ type: "resume", code: roomCode, token: relayToken });
-      else send(hosting ? { type: "create" } : { type: "join", code: roomCode });
+      else send(hosting ? { type: "create", hostKey } : { type: "join", code: roomCode });
     });
     wire.on("message", (raw, binary) => {
       if (ended || socket !== wire) return;

@@ -30,6 +30,7 @@
       "!desktop/assets/ninepalace-pawn-character.png",
       "!desktop/assets/ninepalace-lobby-character.png",
       "!desktop/assets/*-draft.png",
+      "relay/server.cjs",
       "vendor/xiangqi-js/xiangqi.js",
       "vendor/xiangqi-js/LICENSE",
       "package.json"

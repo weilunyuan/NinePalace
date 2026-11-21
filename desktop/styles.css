@@ -962,10 +962,6 @@ body[data-character$="-rook"] .hero-ornament-one::after { content: "車"; }
 .settings-row select:focus-visible, .room-invite-link:focus-visible, .room-code-entry input:focus-visible { outline: 2px solid #59b4d8; outline-offset: 2px; }
 .settings-note { color: #7894a3; }
 .toast { border-color: #b8ddec; color: #315b73; background: #f8fdfff2; box-shadow: 0 12px 34px #2d6f982c; }
-.remote-relay-settings { padding: 10px 12px; border: 1px solid #dcebf1; border-radius: 10px; color: #315a72; font-size: 13px; }
-.remote-relay-settings summary { cursor: pointer; }
-.remote-relay-settings label { margin-top: 9px; }
-#remote-relay-address { font-size: 14px; letter-spacing: normal; text-align: left; text-transform: none; }
 .remote-room-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(105px, auto); align-items: end; gap: 12px; }
 .remote-room-row .button, .remote-room-row input, .remote-room-row select { min-height: 44px; }
 .remote-room-row select { width: 100%; padding: 8px 10px; border: 1px solid #c5e0eb; border-radius: 8px; color: #315a72; background: #f5fbfe; font: inherit; font-size: 15px; }

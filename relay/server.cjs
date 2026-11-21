@@ -6,13 +6,14 @@ const { RELAY_PATH, ROOM_CODE, SESSION_TOKEN, MAX_MESSAGE_BYTES, RECONNECT_MS } 
 const ROOM_LIMIT = 100;
 const MINUTE = 60_000;
 
-function createRelayServer({ reconnectMs = RECONNECT_MS, heartbeatMs = 12_000 } = {}) {
+function createRelayServer({ reconnectMs = RECONNECT_MS, heartbeatMs = 12_000, hostedRoom } = {}) {
   // ponytail: rooms live in one relay process. Use shared routing before adding replicas.
   const rooms = new Map();
   const attempts = new Map();
   const sockets = new WebSocketServer({ noServer: true, maxPayload: MAX_MESSAGE_BYTES, perMessageDeflate: false });
   const server = createServer((request, response) => {
     const healthy = request.method === "GET" && request.url === "/health";
+    if (healthy && hostedRoom) response.setHeader("X-NinePalace-Room", hostedRoom.code);
     response.writeHead(healthy ? 200 : 404, { "Content-Type": "text/plain", "Cache-Control": "no-store" });
     response.end(healthy ? "NinePalace relay v1\n" : "Not found\n");
   });
@@ -119,8 +120,11 @@ function createRelayServer({ reconnectMs = RECONNECT_MS, heartbeatMs = 12_000 } 
       sweep(now);
       if (message.type === "create") {
         if (!mayConnect(address) || rooms.size >= ROOM_LIMIT) return error("remoteBusy");
-        let code;
-        do { code = String(randomInt(10_000, 100_000)); } while (rooms.has(code));
+        if (hostedRoom && (rooms.size || message.hostKey !== hostedRoom.key)) return error("remoteBusy");
+        let code = hostedRoom?.code;
+        if (!code) {
+          do { code = String(randomInt(10_000, 100_000)); } while (rooms.has(code));
+        }
         const created = { code, host: null, guest: null };
         rooms.set(code, created);
         return attach(created, "host");
@@ -155,7 +159,13 @@ function createRelayServer({ reconnectMs = RECONNECT_MS, heartbeatMs = 12_000 } 
   }, heartbeatMs);
   heartbeat.unref();
   server.once("close", () => clearInterval(heartbeat));
-  return { server, sockets };
+  function close() {
+    for (const room of rooms.values()) finish(room);
+    for (const socket of sockets.clients) socket.close(1001);
+    sockets.close();
+    server.close();
+  }
+  return { server, sockets, close };
 }
 
 if (require.main === module) {

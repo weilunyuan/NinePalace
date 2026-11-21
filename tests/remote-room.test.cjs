@@ -7,8 +7,8 @@ const { createRelayServer } = require("../relay/server.cjs");
 const { connectRemoteRoom } = require("../desktop/remote-room.cjs");
 const { relayAddress } = require("../desktop/remote-protocol.cjs");
 
-async function withRelay(run) {
-  const { server, sockets } = createRelayServer();
+async function withRelay(run, options) {
+  const { server, sockets } = createRelayServer(options);
   const clients = [];
   server.listen(0, "127.0.0.1");
   await once(server, "listening");
@@ -98,3 +98,16 @@ test("a guest discards a host snapshot containing illegal or malformed moves", {
     assert.equal(guest.getState(), undefined);
   } finally { host.close(); }
 }));
+
+test("an automatic relay only opens its assigned room for the local host", { timeout: 5000 }, () => {
+  const code = "52843";
+  const key = "test-only-host-key";
+  return withRelay(async ({ base, connect }) => {
+    assert.equal((await fetch(`${base}/health`)).headers.get("x-ninepalace-room"), code);
+    await assert.rejects(connect({ color: "r" }).ready, { code: "remoteBusy" });
+    const host = connect({ color: "b", hostKey: key });
+    assert.equal((await host.ready).roomCode, code);
+    await assert.rejects(connect({ color: "r", hostKey: key }).ready, { code: "remoteBusy" });
+    assert.equal((await connect({ code }).ready).playerColor, "r");
+  }, { hostedRoom: { code, key } });
+});

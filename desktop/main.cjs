@@ -17,6 +17,8 @@ const {
 const { createWebServer } = require("./web-server.cjs");
 const { createFriendRooms, normalizeRoomCode } = require("./friend-rooms.cjs");
 const { connectRemoteRoom } = require("./remote-room.cjs");
+const { createHostedRemoteRoom } = require("./hosted-room.cjs");
+const { publicRoomAddress } = require("./room-tunnel.cjs");
 
 let playerColor = "r";
 let mainWindow = null;
@@ -101,9 +103,9 @@ function activateDesktopRoom(code, token) {
 }
 
 function cancelRemoteConnection() {
-  const room = connectingRoom;
+  const request = connectingRoom;
   connectingRoom = null;
-  room?.close();
+  request?.abort();
 }
 
 function leaveDesktopRoom() {
@@ -118,26 +120,35 @@ function leaveDesktopRoom() {
 
 async function enterRemoteRoom(options) {
   if (connectingRoom) return { error: "remoteConnecting" };
+  const request = new AbortController();
+  connectingRoom = request;
   let candidate;
+  request.signal.addEventListener("abort", () => candidate?.close(), { once: true });
   try {
-    candidate = connectRemoteRoom({
-      ...options,
-      onState(state) {
-        if (remoteRoom === candidate && mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send("game:state", state);
-      },
-    });
-    connectingRoom = candidate;
+    const onState = (state) => {
+      if (remoteRoom === candidate && mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send("game:state", state);
+    };
+    const relay = process.env.NINEPALACE_RELAY_URL?.trim();
+    if (relay || options.code !== undefined) {
+      candidate = connectRemoteRoom({ ...options, url: relay || publicRoomAddress(options.code), onState });
+    } else {
+      candidate = await createHostedRemoteRoom({ ...options, signal: request.signal, onState });
+    }
+    request.signal.throwIfAborted();
     await candidate.ready;
-    if (connectingRoom !== candidate) return { error: "remoteRoomClosed" };
+    request.signal.throwIfAborted();
+    const state = candidate.getState();
+    if (state.connection === "closed") return { error: "remoteRoomClosed" };
     connectingRoom = null;
     leaveDesktopRoom();
     remoteRoom = candidate;
-    const state = candidate.getState();
     return { state, roomCode: state.roomCode };
   } catch (error) {
     candidate?.close();
-    if (connectingRoom === candidate) connectingRoom = null;
-    return { error: error.code || "remoteUnavailable" };
+    if (request.signal.aborted) return { error: "remoteRoomClosed" };
+    return { error: /^remote[A-Z]/.test(error.code) ? error.code : "remoteUnavailable" };
+  } finally {
+    if (connectingRoom === request) connectingRoom = null;
   }
 }
 
@@ -440,9 +451,8 @@ ipcMain.handle("room:leave", () => {
   leaveDesktopRoom();
   return snapshot();
 });
-ipcMain.handle("remote:default-address", () => process.env.NINEPALACE_RELAY_URL || "");
-ipcMain.handle("remote:create", (_event, url, color) => enterRemoteRoom({ url, color }));
-ipcMain.handle("remote:join", (_event, url, code) => enterRemoteRoom({ url, code: code ?? "" }));
+ipcMain.handle("remote:create", (_event, color) => enterRemoteRoom({ color }));
+ipcMain.handle("remote:join", (_event, code) => enterRemoteRoom({ code: code ?? "" }));
 ipcMain.handle("remote:cancel", cancelRemoteConnection);
 
 async function runSmokeTest() {
@@ -1193,7 +1203,7 @@ app.whenReady().then(async () => {
       const pwa = await mainWindow.webContents.executeJavaScript(`(async () => {
         if (!('serviceWorker' in navigator)) throw new Error('当前浏览器没有 Service Worker 支持');
         const registration = await navigator.serviceWorker.ready;
-        const cache = await caches.open('ninepalace-shell-v27');
+        const cache = await caches.open('ninepalace-shell-v28');
         const required = ['/', '/styles.css', '/lobby.css', '/match.css', '/renderer.js', '/i18n.js', '/character-select.js', '/settings.js', '/chinese-notation.js', '/manifest.webmanifest', '/assets/ninepalace-red-rook-girl.png', '/assets/ninepalace-red-horse-girl.png', '/assets/ninepalace-black-rook-loli.png', '/assets/ninepalace-black-horse-loli.png', '/vendor/xiangqi-js/xiangqi.js'];
         required.push(...['red-rook', 'red-horse', 'black-rook', 'black-horse'].map(id => '/assets/ninepalace-hand-' + id + '.png'));
         const missing = [];

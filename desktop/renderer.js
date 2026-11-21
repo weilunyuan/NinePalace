@@ -1634,28 +1634,20 @@ document.querySelector("#result-share-pgn").addEventListener("click", () => {
 if (location.protocol === "file:") document.querySelector("#join-room-home").hidden = true;
 
 const remoteDialog = document.querySelector("#remote-room-dialog");
-const remoteAddress = document.querySelector("#remote-relay-address");
 const remoteCode = document.querySelector("#remote-room-code");
 const remoteSide = document.querySelector("#remote-room-side");
 const remoteCreate = document.querySelector("#remote-room-create");
 const remoteJoin = document.querySelector("#remote-room-join");
 const remoteStatus = document.querySelector("#remote-room-status");
-const remoteDetails = document.querySelector("#remote-relay-settings");
-const RELAY_PREFERENCE = "ninepalace.remote-relay.v1";
 
 if (window.ninepalace.createRemoteRoom) {
   document.querySelector("#remote-room-home").hidden = false;
-  try { remoteAddress.value = localStorage.getItem(RELAY_PREFERENCE) || ""; } catch {}
-  if (!remoteAddress.value) void window.ninepalace.remoteDefaultAddress().then(address => {
-    if (!remoteAddress.value) remoteAddress.value = address;
-  }).catch(() => {});
 }
 
 function openRemoteDialog() {
-  remoteDetails.open = !remoteAddress.value;
   remoteStatus.hidden = true;
   remoteDialog.showModal();
-  (remoteDetails.open ? remoteAddress : remoteCode).focus();
+  remoteCode.focus();
 }
 
 function showRemoteStatus(key) {
@@ -1665,31 +1657,21 @@ function showRemoteStatus(key) {
 
 async function requestRemoteRoom(hosting) {
   if (remoteCreate.disabled) return;
-  const url = remoteAddress.value.trim();
   const code = remoteCode.value;
-  if (!url) {
-    remoteDetails.open = true;
-    remoteAddress.focus();
-    return showRemoteStatus("remoteRelayRequired");
-  }
   if (!hosting && !/^[1-9][0-9]{4}$/.test(code)) {
     remoteCode.focus();
     return showRemoteStatus("remoteBadCode");
   }
-  const controls = [remoteCreate, remoteJoin, remoteCode, remoteAddress, remoteSide];
+  const controls = [remoteCreate, remoteJoin, remoteCode, remoteSide];
   controls.forEach(control => { control.disabled = true; });
-  showRemoteStatus("remoteConnecting");
+  showRemoteStatus(hosting ? "remoteStarting" : "remoteConnecting");
   try {
-    const result = await (hosting ? window.ninepalace.createRemoteRoom(url, remoteSide.value) : window.ninepalace.joinRemoteRoom(url, code));
+    const result = await (hosting ? window.ninepalace.createRemoteRoom(remoteSide.value) : window.ninepalace.joinRemoteRoom(code));
     if (!remoteDialog.open) {
       if (result.state) await window.ninepalace.leaveRoom();
       return;
     }
-    if (!result.state) {
-      if (result.error === "remoteBadRelay") remoteDetails.open = true;
-      return showRemoteStatus(result.error || "remoteUnavailable");
-    }
-    try { localStorage.setItem(RELAY_PREFERENCE, url); } catch {}
+    if (!result.state) return showRemoteStatus(result.error || "remoteUnavailable");
     remoteDialog.close();
     await enterFriendRoom(result);
   } catch {
