@@ -13,6 +13,11 @@
 - 许可证：BSD-2-Clause，版权及完整条款保存在 `vendor/xiangqi-js/LICENSE`。
 - 本项目使用原版规则源文件 `vendor/xiangqi-js/xiangqi.js`。
 
+## ws
+
+- 来源：[websockets/ws](https://github.com/websockets/ws)，版本 `8.23.0`。
+- MIT 许可证。Windows 客户端与远程中转使用此组件处理 WebSocket 连接。
+
 ## Pikafish
 
 - 来源：[official-pikafish/Pikafish](https://github.com/official-pikafish/Pikafish)

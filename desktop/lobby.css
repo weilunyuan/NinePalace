@@ -201,7 +201,6 @@ body[data-character$="-horse"] .lobby-piece::after { content: "馬"; }
 .lobby-friends-emblem i { position: absolute; top: 0; left: 0; display: grid; width: 28px; height: 28px; place-items: center; border: 1px solid #c59b99; border-radius: 50%; color: #a75b61; background: #fefaf8; font: 16px "SimSun", serif; }
 .lobby-friends-emblem i:last-child { top: 7px; left: 17px; border-color: #b0b7c5; color: #626c80; background: #f5f6fa; }
 .lobby-friend-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-.lobby-friend-actions:has(button[hidden]) { grid-template-columns: 1fr; }
 .lobby-friend-actions button { display: flex; min-height: 43px; align-items: center; justify-content: center; gap: 6px; padding: 8px 5px; border: 1px solid #d8dce6; border-radius: 10px; color: #59657e; background: #ffffff91; font-size: 12px; transition: background .18s ease, border-color .18s ease; }
 .lobby-friend-actions button:hover { border-color: #aab6cd; background: #fff; }
 .lobby-friend-actions svg { width: 17px; height: 17px; flex: 0 0 auto; }

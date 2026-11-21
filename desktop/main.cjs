@@ -16,6 +16,7 @@ const {
 } = require("./difficulty.cjs");
 const { createWebServer } = require("./web-server.cjs");
 const { createFriendRooms, normalizeRoomCode } = require("./friend-rooms.cjs");
+const { connectRemoteRoom } = require("./remote-room.cjs");
 
 let playerColor = "r";
 let mainWindow = null;
@@ -31,10 +32,13 @@ let analysisQueue = Promise.resolve();
 let currentDifficulty = DEFAULT_DIFFICULTY;
 let currentEngineId = DEFAULT_ENGINE_ID;
 let gameGeneration = 0;
+let gameRevision = 0;
 let webServer = null;
 let friendRoomServer = null;
 let activeDesktopRoom = null;
 let activeDesktopRoomUnsubscribe = null;
+let remoteRoom = null;
+let connectingRoom = null;
 const webStateListeners = new Set();
 const friendRooms = createFriendRooms();
 
@@ -89,11 +93,52 @@ async function startFriendRoomServer() {
 }
 
 function activateDesktopRoom(code, token) {
-  activeDesktopRoomUnsubscribe?.();
+  leaveDesktopRoom();
   activeDesktopRoom = { code, token };
   activeDesktopRoomUnsubscribe = friendRooms.subscribe(code, token, (state) => {
     if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send("game:state", state);
   });
+}
+
+function cancelRemoteConnection() {
+  const room = connectingRoom;
+  connectingRoom = null;
+  room?.close();
+}
+
+function leaveDesktopRoom() {
+  cancelRemoteConnection();
+  const room = remoteRoom;
+  remoteRoom = null;
+  room?.close();
+  activeDesktopRoomUnsubscribe?.();
+  activeDesktopRoomUnsubscribe = null;
+  activeDesktopRoom = null;
+}
+
+async function enterRemoteRoom(options) {
+  if (connectingRoom) return { error: "remoteConnecting" };
+  let candidate;
+  try {
+    candidate = connectRemoteRoom({
+      ...options,
+      onState(state) {
+        if (remoteRoom === candidate && mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send("game:state", state);
+      },
+    });
+    connectingRoom = candidate;
+    await candidate.ready;
+    if (connectingRoom !== candidate) return { error: "remoteRoomClosed" };
+    connectingRoom = null;
+    leaveDesktopRoom();
+    remoteRoom = candidate;
+    const state = candidate.getState();
+    return { state, roomCode: state.roomCode };
+  } catch (error) {
+    candidate?.close();
+    if (connectingRoom === candidate) connectingRoom = null;
+    return { error: error.code || "remoteUnavailable" };
+  }
 }
 
 function snapshot() {
@@ -102,6 +147,7 @@ function snapshot() {
     finalFen: game.fen(),
     turn: game.turn(),
     history: game.history(),
+    revision: gameRevision,
     phase,
     status,
     thinking,
@@ -153,8 +199,9 @@ async function analyzeSavedGameNow(moves, onProgress, engineId) {
 }
 
 function publish() {
+  gameRevision += 1;
   const current = snapshot();
-  if (mainWindow && !mainWindow.isDestroyed() && !activeDesktopRoom) {
+  if (mainWindow && !mainWindow.isDestroyed() && !activeDesktopRoom && !remoteRoom) {
     mainWindow.webContents.send("game:state", current);
   }
   for (const listener of webStateListeners) listener(current);
@@ -284,8 +331,7 @@ async function startWebServer(port = 4173) {
 }
 
 function closeWebServer() {
-  activeDesktopRoomUnsubscribe?.();
-  activeDesktopRoomUnsubscribe = null;
+  leaveDesktopRoom();
   const servers = [webServer, friendRoomServer].filter(Boolean);
   webServer = null;
   friendRoomServer = null;
@@ -353,28 +399,27 @@ async function createWindow(hidden = false, { url = null, withPreload = true, pa
 }
 
 ipcMain.handle("game:get-state", () => {
+  if (remoteRoom) return remoteRoom.getState();
   if (!activeDesktopRoom) return snapshot();
   const state = friendRooms.getState(activeDesktopRoom.code, activeDesktopRoom.token);
   const port = friendRoomServer?.address()?.port;
   return { ...state, inviteUrls: port ? getLanInviteUrls(port) : [] };
 });
 ipcMain.handle("game:start", async (_event, engineId, color, difficulty) => {
-  activeDesktopRoomUnsubscribe?.();
-  activeDesktopRoomUnsubscribe = null;
-  activeDesktopRoom = null;
+  leaveDesktopRoom();
   return startGame(engineId, color, difficulty);
 });
-ipcMain.handle("game:get-legal-moves", (_event, square) => activeDesktopRoom
+ipcMain.handle("game:get-legal-moves", (_event, square) => remoteRoom ? remoteRoom.getLegalMoves(square) : activeDesktopRoom
   ? friendRooms.getLegalMoves(activeDesktopRoom.code, activeDesktopRoom.token, square)
   : getLegalMoves(square));
-ipcMain.handle("game:move", (_event, move, difficulty) => activeDesktopRoom
+ipcMain.handle("game:move", (_event, move, difficulty) => remoteRoom ? remoteRoom.submitMove(move) : activeDesktopRoom
   ? friendRooms.submitMove(activeDesktopRoom.code, activeDesktopRoom.token, move)
   : submitMove(move, difficulty));
-ipcMain.handle("game:undo", () => activeDesktopRoom ? { ok: false } : undoGame());
-ipcMain.handle("game:resign", () => activeDesktopRoom
+ipcMain.handle("game:undo", () => (activeDesktopRoom || remoteRoom) ? { ok: false } : undoGame());
+ipcMain.handle("game:resign", () => remoteRoom ? remoteRoom.resign() : activeDesktopRoom
   ? friendRooms.resign(activeDesktopRoom.code, activeDesktopRoom.token)
   : resignGame());
-ipcMain.handle("game:retry-engine", (_event, difficulty) => retryEngine(difficulty));
+ipcMain.handle("game:retry-engine", (_event, difficulty) => (activeDesktopRoom || remoteRoom) ? { ok: false } : retryEngine(difficulty));
 ipcMain.handle("game:analyze", async (event, recordId, moves, engineId) => analyzeSavedGame(moves, (progress) => {
   if (!event.sender.isDestroyed()) event.sender.send("game:analysis-progress", { recordId, ...progress });
 }, engineId));
@@ -392,11 +437,13 @@ ipcMain.handle("room:join", (_event, rawCode) => {
   return session;
 });
 ipcMain.handle("room:leave", () => {
-  activeDesktopRoomUnsubscribe?.();
-  activeDesktopRoomUnsubscribe = null;
-  activeDesktopRoom = null;
+  leaveDesktopRoom();
   return snapshot();
 });
+ipcMain.handle("remote:default-address", () => process.env.NINEPALACE_RELAY_URL || "");
+ipcMain.handle("remote:create", (_event, url, color) => enterRemoteRoom({ url, color }));
+ipcMain.handle("remote:join", (_event, url, code) => enterRemoteRoom({ url, code: code ?? "" }));
+ipcMain.handle("remote:cancel", cancelRemoteConnection);
 
 async function runSmokeTest() {
   try {
@@ -516,7 +563,7 @@ async function runSideUiSmokeTest() {
           const after = await wait(position => position.history.length === 3 && position.turn === 'b' && !position.thinking && position, '执黑落子后 AI 未正确应手');
           await idle();
           assert(after.history[1] === move && after.history[0] === opening.history[0] && !variation, '推演采用未只提交第一步黑棋');
-          assert(sounds.length === 2 && sounds[0].engine === false && sounds[1].engine === true, '黑方玩家和红方 AI 的落子音效未正确区分');
+          assert(sounds.length === 2 && sounds[0].engine === false && sounds[1].engine === true, '黑方玩家和红方 AI 的落子音效未正确区分：' + JSON.stringify(sounds));
           if (engineId === 'pikafish') assert(hands.some(hand => hand.side === 'b' && hand.angle === 'rotate(90)')
             && hands.some(hand => hand.side === 'r' && hand.angle === 'rotate(-90)'), '翻转棋盘后人手进入方向不正确');
           document.querySelector('#undo-button').click();
@@ -1146,7 +1193,7 @@ app.whenReady().then(async () => {
       const pwa = await mainWindow.webContents.executeJavaScript(`(async () => {
         if (!('serviceWorker' in navigator)) throw new Error('当前浏览器没有 Service Worker 支持');
         const registration = await navigator.serviceWorker.ready;
-        const cache = await caches.open('ninepalace-shell-v26');
+        const cache = await caches.open('ninepalace-shell-v27');
         const required = ['/', '/styles.css', '/lobby.css', '/match.css', '/renderer.js', '/i18n.js', '/character-select.js', '/settings.js', '/chinese-notation.js', '/manifest.webmanifest', '/assets/ninepalace-red-rook-girl.png', '/assets/ninepalace-red-horse-girl.png', '/assets/ninepalace-black-rook-loli.png', '/assets/ninepalace-black-horse-loli.png', '/vendor/xiangqi-js/xiangqi.js'];
         required.push(...['red-rook', 'red-horse', 'black-rook', 'black-horse'].map(id => '/assets/ninepalace-hand-' + id + '.png'));
         const missing = [];

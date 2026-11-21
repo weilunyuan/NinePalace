@@ -19,6 +19,33 @@ function normalizeCode(value) {
   return code.length === ROOM_CODE_LENGTH ? code : "";
 }
 
+function friendRoomOutcome(winner, reason, pattern) {
+  const titles = { red: "红方获胜", black: "黑方获胜", draw: "本局和棋" };
+  return { winner, title: titles[winner], reason, ...(pattern ? { pattern } : {}) };
+}
+
+function friendRoomState(game, { roomCode, playerColor, players, phase, outcome }) {
+  return {
+    board: game.board(),
+    turn: game.turn(),
+    history: game.history(),
+    phase,
+    status: phase === "waiting" ? "房间已创建，等待朋友加入"
+      : phase === "finished" ? `${outcome.title} · ${outcome.reason}`
+        : game.turn() === playerColor ? "轮到你走" : "等待对方走棋",
+    thinking: false,
+    outcome,
+    engineFailure: false,
+    inCheck: game.in_check(),
+    mode: "friend",
+    roomCode,
+    playerColor,
+    players,
+    pgn: game.pgn(),
+    finalFen: game.fen(),
+  };
+}
+
 function createFriendRooms({ now = Date.now, makeCode = null, makeToken = null } = {}) {
   const rooms = new Map();
 
@@ -57,32 +84,18 @@ function createFriendRooms({ now = Date.now, makeCode = null, makeToken = null }
   }
 
   function snapshot(room, token) {
-    const playerColor = getSeat(room, token);
-    const board = room.game.board();
-    return {
-      board,
-      turn: room.game.turn(),
-      history: room.game.history(),
-      phase: room.phase,
-      status: room.phase === "waiting"
-        ? "房间已创建，等待朋友加入"
-        : room.phase === "finished"
-          ? `${room.outcome.title} · ${room.outcome.reason}`
-          : room.game.turn() === playerColor ? "轮到你走" : "等待对方走棋",
-      thinking: false,
-      outcome: room.outcome,
-      engineFailure: false,
-      inCheck: room.game.in_check(),
-      mode: "friend",
+    const state = friendRoomState(room.game, {
       roomCode: room.code,
-      playerColor,
+      playerColor: getSeat(room, token),
       players: { red: Boolean(room.players.r), black: Boolean(room.players.b) },
-      pgn: room.game.pgn(),
-      finalFen: room.game.fen(),
-    };
+      phase: room.phase,
+      outcome: room.outcome,
+    });
+    return { ...state, revision: room.revision };
   }
 
   function publish(room) {
+    room.revision += 1;
     room.updatedAt = now();
     for (const [token, listeners] of room.listeners) {
       let state;
@@ -98,10 +111,8 @@ function createFriendRooms({ now = Date.now, makeCode = null, makeToken = null }
   }
 
   function finish(room, winner, reason, pattern = null) {
-    const titles = { red: "红方获胜", black: "黑方获胜", draw: "本局和棋" };
     room.phase = "finished";
-    room.outcome = { winner, title: titles[winner], reason };
-    if (pattern) room.outcome.pattern = pattern;
+    room.outcome = friendRoomOutcome(winner, reason, pattern);
   }
 
   function create(playerColor = "r") {
@@ -121,6 +132,7 @@ function createFriendRooms({ now = Date.now, makeCode = null, makeToken = null }
       game: new Xiangqi(),
       phase: "waiting",
       outcome: null,
+      revision: 0,
       players: { r: playerColor === "r" ? { token } : null, b: playerColor === "b" ? { token } : null },
       listeners: new Map(),
       updatedAt: now(),
@@ -202,4 +214,4 @@ function createFriendRooms({ now = Date.now, makeCode = null, makeToken = null }
   return { create, join, getState, getLegalMoves, submitMove, resign, subscribe };
 }
 
-module.exports = { createFriendRooms, normalizeRoomCode: normalizeCode };
+module.exports = { createFriendRooms, normalizeRoomCode: normalizeCode, friendRoomState, friendRoomOutcome };

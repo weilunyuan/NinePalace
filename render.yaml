@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: ninepalace-relay
+    runtime: node
+    plan: free
+    buildCommand: npm ci --omit=dev
+    startCommand: npm run relay
+    healthCheckPath: /health
+    envVars:
+      - key: HOST
+        value: 0.0.0.0

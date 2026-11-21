@@ -55,6 +55,7 @@
             <div class="lobby-friend-actions">
               <button type="button" data-action="create-room"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg><span data-i18n="createRoom">创建好友房</span></button>
               <button id="join-room-home" type="button" data-action="join-room"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M13 4h6v16h-6M4 12h10M10 8l4 4-4 4"/></svg><span data-i18n="joinRoom">加入好友房</span></button>
+              <button id="remote-room-home" type="button" data-action="remote-room" data-i18n="remoteTitle" aria-haspopup="dialog" hidden>远程联机</button>
             </div>
           </div>
 
@@ -144,12 +145,15 @@
             <section id="friend-room-panel" class="side-card friend-room-panel" hidden>
               <h2 data-i18n="roomInviteTitle">邀请好友加入</h2>
               <p class="room-code-label"><span data-i18n="roomCodeLabel">房间码</span> <strong id="room-code-value"></strong></p>
-              <p id="room-panel-status" class="muted room-panel-status"></p>
-              <label class="room-link-label" for="room-invite-link" data-i18n="roomLinkLabel">邀请链接</label>
-              <select id="room-invite-address" class="room-invite-link" hidden data-i18n-aria="roomAddressLabel" aria-label="选择可用的网络地址"></select>
-              <input id="room-invite-link" class="room-invite-link" type="text" readonly>
-              <button id="room-copy-link" class="button secondary small room-copy-link" type="button" data-i18n="copyInviteLink">复制邀请链接</button>
-              <p class="muted room-panel-status" data-i18n="roomNetworkNote">仅限同一局域网或互通的私有网络；应用关闭后房间结束。不要把链接公开到互联网。</p>
+              <p id="room-panel-status" class="muted room-panel-status" role="status"></p>
+              <div id="lan-room-invite">
+                <label class="room-link-label" for="room-invite-link" data-i18n="roomLinkLabel">邀请链接</label>
+                <select id="room-invite-address" class="room-invite-link" hidden data-i18n-aria="roomAddressLabel" aria-label="选择可用的网络地址"></select>
+                <input id="room-invite-link" class="room-invite-link" type="text" readonly>
+                <button id="room-copy-link" class="button secondary small room-copy-link" type="button" data-i18n="copyInviteLink">复制邀请链接</button>
+                <p class="muted room-panel-status" data-i18n="roomNetworkNote">仅限同一局域网或互通的私有网络；应用关闭后房间结束。不要把链接公开到互联网。</p>
+              </div>
+              <button id="remote-copy-code" class="button secondary small room-copy-link" type="button" data-i18n="remoteCopyCode" hidden>复制房间号</button>
             </section>
             <section id="lesson-card" class="side-card lesson-card" aria-live="polite" hidden>
               <div id="lesson-progress" class="lesson-progress">入门教学 · 1 / 3</div>
@@ -277,6 +281,39 @@
         </label>
         <p class="muted" data-i18n="roomJoinHelp">输入朋友分享的 6 位房间码。加入后此设备会保存重连凭据。</p>
         <button class="button primary" id="room-join-submit" type="button" data-i18n="joinRoom">加入好友房</button>
+      </form>
+    </dialog>
+    <dialog id="remote-room-dialog" class="settings-dialog" aria-labelledby="remote-room-title">
+      <form id="remote-room-form" novalidate>
+        <div class="settings-heading">
+          <h2 id="remote-room-title" data-i18n="remoteTitle">远程联机</h2>
+          <button id="remote-room-close" class="button secondary small" type="button" data-i18n-aria="closeRoomDialog" aria-label="关闭房间窗口">×</button>
+        </div>
+        <details id="remote-relay-settings" class="remote-relay-settings">
+          <summary data-i18n="remoteRelayLabel">中转服务地址</summary>
+          <label class="room-code-entry" for="remote-relay-address">
+            <span data-i18n="remoteRelayHelp">首次使用时，两台电脑填入同一个地址。</span>
+            <input id="remote-relay-address" type="url" placeholder="https://…" maxlength="256" autocomplete="off" spellcheck="false">
+          </label>
+        </details>
+        <div class="remote-room-row">
+          <label class="room-code-entry" for="remote-room-side">
+            <span data-i18n="playerSideTitle">执棋方</span>
+            <select id="remote-room-side">
+              <option value="r" data-i18n="playRed">红方 · 先手</option>
+              <option value="b" data-i18n="playBlack">黑方 · 后手</option>
+            </select>
+          </label>
+          <button id="remote-room-create" class="button primary" type="button" data-i18n="remoteCreate">开房</button>
+        </div>
+        <div class="remote-room-row">
+          <label class="room-code-entry" for="remote-room-code">
+            <span data-i18n="remoteFiveDigitCode">五位房间号</span>
+            <input id="remote-room-code" type="text" inputmode="numeric" autocomplete="off" maxlength="5" pattern="[1-9][0-9]{4}">
+          </label>
+          <button id="remote-room-join" class="button secondary" type="submit" data-i18n="remoteJoin">加入房间</button>
+        </div>
+        <p id="remote-room-status" class="settings-note" role="status" hidden></p>
       </form>
     </dialog>
     <footer data-i18n="footer">NINEPALACE · 本地对弈验证版 · v0.1</footer>

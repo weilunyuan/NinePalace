@@ -446,7 +446,7 @@ function persistFinishedGame(nextState) {
     return;
   }
   if (nextState.phase !== "finished" || !nextState.outcome) return;
-  const signature = JSON.stringify([nextState.engineId, nextState.playerColor, nextState.history, nextState.outcome]);
+  const signature = JSON.stringify([nextState.roomCode, nextState.engineId, nextState.playerColor, nextState.history, nextState.outcome]);
   if (signature === lastSavedGameSignature) return;
   try {
     const Game = window.NinePalaceXiangqi;
@@ -461,6 +461,7 @@ function persistFinishedGame(nextState) {
       winner: nextState.outcome.winner,
       reason: nextState.outcome.reason,
       pattern: nextState.outcome.pattern || null,
+      mode: nextState.mode,
       engineId: nextState.engineId || "pikafish",
       playerColor: nextState.playerColor || "r",
       moves: [...nextState.history],
@@ -491,9 +492,14 @@ function outcomeReason(reason) {
   return t(keys[reason] || "resultDefault");
 }
 
-function friendOutcomeTitle(outcome) {
+function friendOutcomeTitle(outcome, color = state?.playerColor) {
   if (outcome?.winner === "draw") return t("friendDraw");
-  return outcome?.winner === (state?.playerColor === "b" ? "black" : "red") ? t("friendWin") : t("friendLoss");
+  return outcome?.winner === (color === "b" ? "black" : "red") ? t("friendWin") : t("friendLoss");
+}
+
+function recordOutcomeTitle(record) {
+  if (record.mode === "friend") return friendOutcomeTitle(record, record.playerColor);
+  return t(outcomeTitleKey(record.winner, record.playerColor), { engine: engineNameFor(record.engineId) });
 }
 
 function renderHistory() {
@@ -515,7 +521,7 @@ function renderHistory() {
     button.dataset.replayId = record.id;
     const summary = document.createElement("div");
     const winner = document.createElement("strong");
-    winner.textContent = t(outcomeTitleKey(record.winner, record.playerColor), { engine: engineNameFor(record.engineId) });
+    winner.textContent = recordOutcomeTitle(record);
     const details = document.createElement("span");
     const date = new Date(record.finishedAt);
     const dateLabel = Number.isNaN(date.getTime()) ? "—" : date.toLocaleString(locale);
@@ -684,9 +690,7 @@ function renderReplay() {
   document.querySelector('[data-replay-step="previous"]').disabled = replayIndex === 0;
   document.querySelector('[data-replay-step="next"]').disabled = replayIndex >= moves.length;
   document.querySelector('[data-replay-step="last"]').disabled = replayIndex >= moves.length;
-  document.querySelector("#replay-outcome").textContent = `${t(outcomeTitleKey(currentReplay.winner, currentReplay.playerColor), {
-    engine: engineNameFor(currentReplay.engineId),
-  })} · ${outcomeReason(currentReplay.reason)}`;
+  document.querySelector("#replay-outcome").textContent = `${recordOutcomeTitle(currentReplay)} · ${outcomeReason(currentReplay.reason)}`;
 
   const moveList = document.querySelector("#replay-moves");
   const focusedPly = Number.isInteger(selectedReviewIndex)
@@ -962,6 +966,7 @@ function render(nextState) {
     toast(t("variationChanged"));
   }
   if (previousState && realPositionKey(previousState) !== realPositionKey()) clearBoardSelection();
+  if (previousState?.connection !== state.connection) clearBoardSelection();
   if (state.phase !== "finished") cancelFinishPresentation();
   if (state.phase === "finished") {
     selectedSquare = null;
@@ -980,11 +985,18 @@ function render(nextState) {
   queueRealBoardMoves(previousState, state);
   drawCurrentBoard();
   const isFriendRoom = state.mode === "friend";
+  const connectionStatus = state.connection === "closed" ? t("remoteRoomClosed")
+    : state.connection === "reconnecting" ? t("roomReconnecting") : null;
+  const waitingStatus = t(state.remote ? "remoteWaiting" : "roomWaiting");
+  const friendStatus = connectionStatus || (state.phase === "waiting" ? waitingStatus
+    : state.phase === "playing" ? t(state.turn === state.playerColor ? "roomYourTurn" : "roomWaitingTurn") : friendOutcomeTitle(state.outcome));
   const blackPlayer = state.playerColor === "b";
   const opponentColor = blackPlayer ? "r" : "b";
   const engineName = currentEngineName();
   document.querySelector('[data-i18n="matchEyebrow"]').textContent = isFriendRoom
-    ? t("roomEyebrow") : t("matchEyebrow", { engine: engineName });
+    ? t(state.remote ? "remoteTitle" : "roomEyebrow") : t("matchEyebrow", { engine: engineName });
+  document.querySelector("#match-title").textContent = t(isFriendRoom ? "roomEyebrow" : "matchTitle");
+  document.querySelector('[data-screen="match"] [data-action="home"]').textContent = t(state.remote ? "remoteLeave" : "returnHome");
   document.querySelector("#top-player-name").textContent = isFriendRoom ? t(blackPlayer ? "friendAsRed" : "friendAsBlack") : engineName;
   document.querySelector("#bottom-player-name").textContent = isFriendRoom ? t(blackPlayer ? "youAsBlack" : "youAsRed") : t("guest");
   document.querySelector("#top-player-meta").textContent = t(blackPlayer ? "redSide" : "blackSide");
@@ -993,48 +1005,49 @@ function render(nextState) {
   document.querySelector("#bottom-avatar").textContent = PIECES[blackPlayer ? "b" : "r"].k;
   document.querySelector("#top-avatar").dataset.side = opponentColor;
   document.querySelector("#bottom-avatar").dataset.side = blackPlayer ? "b" : "r";
-  document.querySelector("#experience-badge").textContent = isFriendRoom ? t("roomEyebrow") : t("localBadge");
-  document.querySelector("#friend-room-panel").hidden = !isFriendRoom;
+  document.querySelector("#experience-badge").textContent = t(isFriendRoom ? state.remote ? "remoteTitle" : "roomEyebrow" : "localBadge");
+  const roomPanel = document.querySelector("#friend-room-panel");
+  roomPanel.hidden = !isFriendRoom;
+  roomPanel.dataset.remote = String(Boolean(state.remote));
   if (isFriendRoom) {
     document.querySelector("#room-code-value").textContent = state.roomCode;
-    document.querySelector("#room-panel-status").textContent = state.connection === "reconnecting" ? t("roomReconnecting")
-      : state.phase === "waiting" ? t("roomWaiting")
-        : state.phase === "playing" && state.players?.black ? t("friendMeta") : friendOutcomeTitle(state.outcome);
-    if (!roomInviteUrls.length) {
+    const roomPanelStatus = document.querySelector("#room-panel-status");
+    roomPanelStatus.hidden = Boolean(state.remote && (state.phase !== "waiting" || connectionStatus));
+    roomPanelStatus.textContent = connectionStatus || (state.phase === "waiting" ? state.remote ? t("remoteSendCode") : waitingStatus
+      : state.phase === "playing" ? t(state.remote ? "remoteTitle" : "friendMeta") : friendOutcomeTitle(state.outcome));
+    document.querySelector("#lan-room-invite").hidden = Boolean(state.remote);
+    document.querySelector("#remote-copy-code").hidden = !state.remote || state.connection === "closed";
+    if (!state.remote && !roomInviteUrls.length) {
       try {
         const fallback = new URL("/", location.origin);
         fallback.searchParams.set("room", state.roomCode);
         if (location.protocol !== "file:") roomInviteUrls = [fallback.href];
       } catch {}
     }
-    renderRoomInviteLinks();
+    if (!state.remote) renderRoomInviteLinks();
   }
   document.querySelector("#game-status").textContent = isFriendRoom
-    ? state.connection === "reconnecting" ? t("roomReconnecting")
-      : state.phase === "waiting" ? t("roomWaiting") : state.phase === "playing" ? state.turn === state.playerColor ? t("roomYourTurn") : t("roomWaitingTurn") : friendOutcomeTitle(state.outcome)
+    ? friendStatus
     : window.npI18n.localizeStatus(state.status);
   const statusPanel = document.querySelector(".status");
-  statusPanel.dataset.state = state.engineFailure ? "error"
+  statusPanel.dataset.state = state.engineFailure || connectionStatus ? "error"
     : state.phase === "finished" ? "finished"
       : state.inCheck ? "check"
         : state.thinking ? "thinking" : "ready";
   document.querySelector("#turn-label").textContent = isFriendRoom
-    ? state.phase === "waiting" ? t("roomWaiting") : state.turn === state.playerColor ? t("roomYourTurn") : t("roomWaitingTurn")
+    ? friendStatus
     : state.inCheck && state.turn === (state.playerColor || "r")
     ? (window.npI18n.getLanguage() === "en" ? "Check · Respond carefully" : "将军 · 注意应对")
     : state.thinking ? t("engineThinking")
       : state.turn === (state.playerColor || "r") ? t("userTurn") : t("waitingEngine");
   const turnPill = document.querySelector("#turn-pill");
-  turnPill.textContent = isFriendRoom && state.connection === "reconnecting" ? t("roomReconnecting")
-    : state.phase === "waiting" ? t("roomWaiting")
-    : state.phase !== "playing" ? t("gameFinished")
-      : isFriendRoom ? state.turn === state.playerColor ? t("roomYourTurn") : t("roomWaitingTurn")
-        : state.thinking ? t("engineThinking") : state.turn === (state.playerColor || "r") ? t("userTurn") : t("waitingEngine");
-  turnPill.classList.toggle("active-turn", state.phase === "playing" && state.turn === (state.playerColor || "r") && !state.thinking && state.connection !== "reconnecting");
+  turnPill.hidden = Boolean(state.remote && (state.phase === "waiting" || connectionStatus));
+  turnPill.textContent = isFriendRoom ? friendStatus : state.phase !== "playing" ? t("gameFinished")
+    : state.thinking ? t("engineThinking") : state.turn === (state.playerColor || "r") ? t("userTurn") : t("waitingEngine");
+  turnPill.classList.toggle("active-turn", state.phase === "playing" && state.turn === (state.playerColor || "r") && !state.thinking && !state.connection);
   turnPill.classList.toggle("engine-thinking", state.phase === "playing" && state.thinking);
   document.querySelector("#undo-button").hidden = isFriendRoom;
   document.querySelector("#undo-button").disabled = isFriendRoom || state.phase !== "playing" || state.thinking || state.turn !== (state.playerColor || "r") || state.history.length < 2;
-  document.querySelector("#resign-button").disabled = state.phase !== "playing" || state.thinking;
   document.querySelector("#retry-button").hidden = !state.engineFailure;
   renderMoves(state.history);
   if (state.phase === "finished") {
@@ -1083,9 +1096,8 @@ async function copyText(value, successMessage) {
 
 async function enterFriendRoom(result) {
   tutorialActive = false;
-  selectedSquare = null;
-  legalTargets = [];
-  roomInviteUrls = makeRoomInviteUrls(result);
+  clearBoardSelection();
+  roomInviteUrls = result.state.remote ? [] : makeRoomInviteUrls(result);
   render(result.state);
   showScreen(result.state.phase === "finished" ? "result" : "match");
   if (result.state.phase !== "finished") boardNode.focus();
@@ -1093,12 +1105,12 @@ async function enterFriendRoom(result) {
 
 function realPositionKey(position = state) {
   if (!position) return "";
-  return JSON.stringify([position.mode, position.roomCode, position.playerColor, position.phase, position.turn, position.history, position.finalFen || position.board]);
+  return JSON.stringify([position.mode, position.remote, position.roomCode, position.playerColor, position.phase, position.turn, position.history, position.finalFen || position.board]);
 }
 
 function canUseVariation(position = state) {
   return Boolean(position?.phase === "playing" && !position.thinking && !tutorialActive
-    && position.connection !== "reconnecting" && position.turn === (position.playerColor || "r"));
+    && !position.connection && position.turn === (position.playerColor || "r"));
 }
 
 function clearBoardSelection() {
@@ -1164,21 +1176,27 @@ function makeBoardMove(move, before, after, opponent = false, pattern = null) {
 
 function queueRealBoardMoves(previous, next) {
   const continuous = previous && previous.mode === next.mode && previous.roomCode === next.roomCode
+    && previous.remote === next.remote
     && (previous.playerColor || "r") === (next.playerColor || "r")
     && previous.engineId === next.engineId && previous.history.length <= next.history.length
     && previous.history.every((move, index) => move === next.history[index]);
   const advance = continuous && previous.phase === "playing" && next.history.length > previous.history.length;
   if (!continuous || (!advance && previous.finalFen !== next.finalFen)) cancelBoardMotion();
   if (!advance) return;
+  const moves = next.history.slice(previous.history.length);
   if (document.body.dataset.view !== "match" || document.documentElement.classList.contains("reduce-motion")) {
     cancelBoardMotion();
-    window.npSettings.playMoveSound({ engine: next.turn === (next.playerColor || "r") });
+    let turn = previous.turn;
+    for (let index = 0; index < moves.length; index += 1) {
+      window.npSettings.playMoveSound({ engine: turn !== (next.playerColor || "r") });
+      turn = turn === "r" ? "b" : "r";
+    }
     return;
   }
   // ponytail: one visual queue; engine/network state stays authoritative and never waits for animation.
   const game = previous.finalFen ? new window.NinePalaceXiangqi(previous.finalFen) : gameAtPly(previous.history, previous.history.length);
   const pending = [];
-  for (const [index, move] of next.history.slice(previous.history.length).entries()) {
+  for (const [index, move] of moves.entries()) {
     const before = game.board();
     if (!game.move(move)) {
       cancelBoardMotion();
@@ -1261,7 +1279,7 @@ function renderVariationUI() {
   boardNode.setAttribute("aria-label", t(boardNode.dataset.i18nAria));
   document.querySelector("#undo-button").disabled = active || submittingMove || moving || state.mode === "friend"
     || state.phase !== "playing" || state.thinking || state.turn !== (state.playerColor || "r") || state.history.length < 2;
-  document.querySelector("#resign-button").disabled = active || submittingMove || moving || state.phase !== "playing" || state.thinking;
+  document.querySelector("#resign-button").disabled = active || submittingMove || moving || state.phase !== "playing" || state.thinking || Boolean(state.connection);
   document.querySelector("#retry-button").disabled = active || submittingMove || moving;
   if (!variation) return;
   const { game, redo, baseFen } = variation;
@@ -1396,7 +1414,7 @@ async function selectSquare(square) {
     return;
   }
   const playerColor = state?.playerColor || "r";
-  if (!state || state.phase !== "playing" || state.thinking || state.connection === "reconnecting" || state.turn !== playerColor) return;
+  if (!state || state.phase !== "playing" || state.thinking || state.connection || state.turn !== playerColor) return;
   const file = FILES.indexOf(square[0]);
   const row = 9 - Number(square[1]);
   const piece = state.board[row]?.[file];
@@ -1500,8 +1518,12 @@ document.querySelectorAll("[data-action]").forEach((button) => button.addEventLi
       document.querySelector("#room-dialog").showModal();
       document.querySelector("#room-code-input").focus();
       break;
+    case "remote-room":
+      openRemoteDialog();
+      break;
     case "home":
       tutorialActive = false;
+      if (state?.remote) render(await window.ninepalace.leaveRoom());
       renderTutorial();
       showScreen("home");
       break;
@@ -1541,7 +1563,10 @@ document.querySelectorAll("[data-action]").forEach((button) => button.addEventLi
     }
     case "resign":
       if (variation || submittingMove) break;
-      if (window.confirm(t("confirmResign"))) await window.ninepalace.resign();
+      if (window.confirm(t("confirmResign"))) {
+        const result = await window.ninepalace.resign();
+        if (!result.ok && result.message) toast(result.message);
+      }
       break;
     case "retry":
       if (variation || submittingMove) break;
@@ -1594,6 +1619,10 @@ document.querySelector("#room-copy-link").addEventListener("click", () => {
   if (value) void copyText(value, "copySuccess");
 });
 
+document.querySelector("#remote-copy-code").addEventListener("click", () => {
+  if (state?.remote) void copyText(state.roomCode, "remoteCodeCopied");
+});
+
 document.querySelector("#room-invite-address").addEventListener("change", (event) => {
   document.querySelector("#room-invite-link").value = event.currentTarget.value;
 });
@@ -1603,6 +1632,86 @@ document.querySelector("#result-share-pgn").addEventListener("click", () => {
 });
 
 if (location.protocol === "file:") document.querySelector("#join-room-home").hidden = true;
+
+const remoteDialog = document.querySelector("#remote-room-dialog");
+const remoteAddress = document.querySelector("#remote-relay-address");
+const remoteCode = document.querySelector("#remote-room-code");
+const remoteSide = document.querySelector("#remote-room-side");
+const remoteCreate = document.querySelector("#remote-room-create");
+const remoteJoin = document.querySelector("#remote-room-join");
+const remoteStatus = document.querySelector("#remote-room-status");
+const remoteDetails = document.querySelector("#remote-relay-settings");
+const RELAY_PREFERENCE = "ninepalace.remote-relay.v1";
+
+if (window.ninepalace.createRemoteRoom) {
+  document.querySelector("#remote-room-home").hidden = false;
+  try { remoteAddress.value = localStorage.getItem(RELAY_PREFERENCE) || ""; } catch {}
+  if (!remoteAddress.value) void window.ninepalace.remoteDefaultAddress().then(address => {
+    if (!remoteAddress.value) remoteAddress.value = address;
+  }).catch(() => {});
+}
+
+function openRemoteDialog() {
+  remoteDetails.open = !remoteAddress.value;
+  remoteStatus.hidden = true;
+  remoteDialog.showModal();
+  (remoteDetails.open ? remoteAddress : remoteCode).focus();
+}
+
+function showRemoteStatus(key) {
+  remoteStatus.textContent = t(key);
+  remoteStatus.hidden = false;
+}
+
+async function requestRemoteRoom(hosting) {
+  if (remoteCreate.disabled) return;
+  const url = remoteAddress.value.trim();
+  const code = remoteCode.value;
+  if (!url) {
+    remoteDetails.open = true;
+    remoteAddress.focus();
+    return showRemoteStatus("remoteRelayRequired");
+  }
+  if (!hosting && !/^[1-9][0-9]{4}$/.test(code)) {
+    remoteCode.focus();
+    return showRemoteStatus("remoteBadCode");
+  }
+  const controls = [remoteCreate, remoteJoin, remoteCode, remoteAddress, remoteSide];
+  controls.forEach(control => { control.disabled = true; });
+  showRemoteStatus("remoteConnecting");
+  try {
+    const result = await (hosting ? window.ninepalace.createRemoteRoom(url, remoteSide.value) : window.ninepalace.joinRemoteRoom(url, code));
+    if (!remoteDialog.open) {
+      if (result.state) await window.ninepalace.leaveRoom();
+      return;
+    }
+    if (!result.state) {
+      if (result.error === "remoteBadRelay") remoteDetails.open = true;
+      return showRemoteStatus(result.error || "remoteUnavailable");
+    }
+    try { localStorage.setItem(RELAY_PREFERENCE, url); } catch {}
+    remoteDialog.close();
+    await enterFriendRoom(result);
+  } catch {
+    if (remoteDialog.open) showRemoteStatus("remoteUnavailable");
+  } finally {
+    controls.forEach(control => { control.disabled = false; });
+  }
+}
+
+remoteCode.addEventListener("input", () => {
+  remoteCode.value = remoteCode.value.normalize("NFKC").replace(/[^0-9]/g, "").slice(0, 5);
+  if (!remoteCreate.disabled) remoteStatus.hidden = true;
+});
+remoteCreate.addEventListener("click", () => void requestRemoteRoom(true));
+document.querySelector("#remote-room-form").addEventListener("submit", (event) => {
+  event.preventDefault();
+  void requestRemoteRoom(false);
+});
+document.querySelector("#remote-room-close").addEventListener("click", () => remoteDialog.close());
+remoteDialog.addEventListener("close", () => {
+  if (remoteCreate.disabled) void window.ninepalace.cancelRemoteRoom();
+});
 
 document.querySelector("#history-list").addEventListener("click", (event) => {
   const entry = event.target.closest("[data-replay-id]");

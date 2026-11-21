@@ -9,6 +9,7 @@
     "start": "electron .",
     "web": "electron . --web-server",
     "web:smoke": "electron . --web-ui-smoke-test",
+    "relay": "node relay/server.cjs",
     "test": "node --test",
     "build:win": "electron-builder --win portable"
   },
@@ -77,5 +78,8 @@
     "portable": {
       "artifactName": "NinePalace-${version}-win-x64.exe"
     }
+  },
+  "dependencies": {
+    "ws": "8.23.0"
   }
 }

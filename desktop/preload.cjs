@@ -12,6 +12,10 @@ contextBridge.exposeInMainWorld("ninepalace", {
   createRoom: (playerColor) => ipcRenderer.invoke("room:create", playerColor),
   joinRoom: (code) => ipcRenderer.invoke("room:join", code),
   leaveRoom: () => ipcRenderer.invoke("room:leave"),
+  remoteDefaultAddress: () => ipcRenderer.invoke("remote:default-address"),
+  createRemoteRoom: (url, playerColor) => ipcRenderer.invoke("remote:create", url, playerColor),
+  joinRemoteRoom: (url, code) => ipcRenderer.invoke("remote:join", url, code),
+  cancelRemoteRoom: () => ipcRenderer.invoke("remote:cancel"),
   onState: (listener) => {
     const handler = (_event, state) => listener(state);
     ipcRenderer.on("game:state", handler);

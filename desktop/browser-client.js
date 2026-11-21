@@ -42,8 +42,12 @@
   }
 
   function publish(state) {
+    // A GET can finish before an older update on the event stream.
+    if (lastState && state.mode === lastState.mode && state.roomCode === lastState.roomCode
+      && Number.isSafeInteger(state.revision) && state.revision < lastState.revision) return lastState;
     lastState = state;
     for (const listener of listeners) listener(state);
+    return state;
   }
 
   async function request(url, options) {
@@ -70,15 +74,17 @@
   function connectEvents() {
     if (eventSource) return;
     const url = activeRoom ? roomUrl("events") : new URL("/api/events", location.origin);
-    eventSource = new EventSource(url);
-    eventSource.onmessage = (event) => {
+    const stream = eventSource = new EventSource(url);
+    stream.onmessage = (event) => {
+      if (eventSource !== stream) return;
       try {
         publish(JSON.parse(event.data));
       } catch {
         // Ignore malformed events and keep the last valid board state.
       }
     };
-    eventSource.onerror = () => {
+    stream.onerror = () => {
+      if (eventSource !== stream) return;
       if (activeRoom && lastState) {
         publish({ ...lastState, connection: "reconnecting", status: "房间服务连接中断，正在尝试重连" });
       } else if (!activeRoom) {
@@ -107,8 +113,7 @@
   async function setRoomResult(result) {
     const session = { code: result.roomCode, token: result.token };
     storeRoomSession(session);
-    publish(result.state);
-    return { ...result, inviteUrls: inviteUrls(result) };
+    return { ...result, state: publish(result.state), inviteUrls: inviteUrls(result) };
   }
 
   window.ninepalace = {
@@ -116,12 +121,10 @@
       try {
         if (activeRoom) {
           const state = await request(roomUrl());
-          publish(state);
-          return state;
+          return publish(state);
         }
         const state = await request("/api/state");
-        publish(state);
-        return state;
+        return publish(state);
       } catch (error) {
         if (activeRoom && lastState) {
           const state = { ...lastState, connection: "reconnecting", status: "房间服务连接中断，正在尝试重连" };
@@ -135,8 +138,7 @@
       try {
         storeRoomSession(null);
         const state = await post("/api/start", { engineId, playerColor, difficulty });
-        publish(state);
-        return state;
+        return publish(state);
       } catch (error) {
         return offlineState(`无法连接本地游戏服务：${error.message}。请先运行 npm run web。`);
       }
