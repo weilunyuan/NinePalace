@@ -1,6 +1,7 @@
 const { spawn } = require("node:child_process");
 const { createInterface } = require("node:readline");
 const { parseEngineEvaluation } = require("./game-analysis.cjs");
+const { variant: PALACE_CASTLING } = require("./palace-castling.js");
 const {
   DEFAULT_ENGINE_ID,
   engineDefinition,
@@ -17,10 +18,13 @@ const {
   searchProfileFor,
 } = require("./difficulty.cjs");
 
+const CASTLING_UCI_VARIANT = "ninepalace-palace-castling";
+
 class UciEngine {
   constructor(engineId = DEFAULT_ENGINE_ID, pathOptions = {}) {
     this.engineId = normalizeEngineId(engineId);
     this.definition = engineDefinition(this.engineId);
+    this.gameVariant = pathOptions.gameVariant ?? null;
     this.pathOptions = pathOptions;
     this.child = null;
     this.lines = [];
@@ -79,12 +83,21 @@ class UciEngine {
     });
 
     await this.command("uci", (line) => line === "uciok");
-    if (this.definition.variant) {
+    if (this.gameVariant === PALACE_CASTLING) {
+      this.send("setoption name VariantPath value palace-castling.ini");
+      this.send(`setoption name UCI_Variant value ${CASTLING_UCI_VARIANT}`);
+      // Encode a short castle as general-to-rook, distinct from a normal one-square general move.
+      this.send("setoption name UCI_Chess960 value true");
+      this.send("setoption name Use NNUE value false");
+    } else if (this.definition.variant) {
       this.send(`setoption name UCI_Variant value ${this.definition.variant}`);
     }
     this.send("setoption name Threads value 1");
     this.send("setoption name Hash value 64");
     await this.command("isready", (line) => line === "readyok");
+    if (this.gameVariant === PALACE_CASTLING && !this.lines.some(line => line.startsWith(`info string variant ${CASTLING_UCI_VARIANT} `))) {
+      throw new Error("Fairy-Stockfish 未加载王车易位规则");
+    }
     this.ready = true;
   }
 
@@ -155,16 +168,18 @@ class UciEngine {
     return (this.searchInfo || []).map((line) => normalizeEngineInfoLine(line, this.engineId));
   }
 
-  async search(history, difficulty = DEFAULT_DIFFICULTY) {
+  async search(history, difficulty = DEFAULT_DIFFICULTY, { fen, legalMoves } = {}) {
     await this.start();
-    const moves = this.formatHistory(history);
+    const moves = fen ? [] : this.formatHistory(history);
+    const position = fen ? `fen ${fen.replace(/^(\S+) r /, "$1 w ")}` : "startpos";
+    const searchMoves = legalMoves ? ` searchmoves ${this.formatHistory(legalMoves).join(" ")}` : "";
     const profile = searchProfileFor(difficulty);
     const response = this.waitFor((line) => line.startsWith("bestmove "), "搜索着法", 60000);
     this.searchInfo = [];
     try {
       this.send(`setoption name MultiPV value ${profile.multiPv}`);
-      this.send(`position startpos${moves.length ? ` moves ${moves.join(" ")}` : ""}`);
-      this.send(profile.command);
+      this.send(`position ${position}${moves.length ? ` moves ${moves.join(" ")}` : ""}`);
+      this.send(`${profile.command}${searchMoves}`);
       const line = await response;
       const engineMove = line.match(/^bestmove\s+(\S+)/i)?.[1];
       const bestMove = fromEngineMove(engineMove, this.engineId);

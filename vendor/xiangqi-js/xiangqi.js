@@ -6,7 +6,7 @@
 
 'use strict';
 
-const Xiangqi = function (fen) {
+const Xiangqi = function (fen, { palaceCastling = false, legacyCastling = false, jieqi = false } = {}) {
   const BLACK = 'b';
   const RED = 'r';
 
@@ -19,8 +19,15 @@ const Xiangqi = function (fen) {
   const BISHOP = 'b';
   const ADVISER = 'a';
   const KING = 'k';
+  const LEAPING_HORSE = 'j';
+  const DIAGONAL_ELEPHANT = 'm';
+  const GUARD = 's';
+  const SHORT_QUEEN = 'q';
+  const FREE_ADVISER = 'u';
+  const FREE_ELEPHANT = 'v';
 
-  const SYMBOLS = 'pcrnbakPCRNBAK';
+  const EXTRA_SYMBOLS = jieqi ? 'uvUV' : palaceCastling ? (legacyCastling ? 'jmsJMS' : 'jmsqJMSQ') : '';
+  const SYMBOLS = 'pcrnbakPCRNBAK' + EXTRA_SYMBOLS;
 
   const DEFAULT_POSITION = 'rnbakabnr/9/1c5c1/p1p1p1p1p/9/9/P1P1P1P1P/1C5C1/9/RNBAKABNR r - - 0 1';
 
@@ -42,15 +49,29 @@ const Xiangqi = function (fen) {
     a: [-0x10 - 0x01,  0x10 + 0x01,  0x10 - 0x01, -0x10 + 0x01],
     k: [-0x10, 0x10, -0x01, 0x01],
   });
+  const EIGHT_DIRECTIONS = [...PIECE_OFFSETS[KING], ...PIECE_OFFSETS[ADVISER]];
+  const TRANSFORMED_OFFSETS = {
+    [LEAPING_HORSE]: PIECE_OFFSETS[KNIGHT],
+    [DIAGONAL_ELEPHANT]: PIECE_OFFSETS[ADVISER],
+    [GUARD]: EIGHT_DIRECTIONS,
+    [SHORT_QUEEN]: EIGHT_DIRECTIONS,
+    [FREE_ADVISER]: PIECE_OFFSETS[ADVISER],
+    [FREE_ELEPHANT]: PIECE_OFFSETS[BISHOP],
+  };
+  const ELEPHANT_RANGE = legacyCastling ? 3 : 9;
+  const QUEEN_RANGE = 3;
+  const SLIDING_RANGE = { [DIAGONAL_ELEPHANT]: ELEPHANT_RANGE, [SHORT_QUEEN]: QUEEN_RANGE };
 
   const FLAGS = Object.freeze({
     NORMAL: 'n',
     CAPTURE: 'c',
+    CASTLE: 's',
   });
 
   const BITS = Object.freeze({
     NORMAL: 1,
     CAPTURE: 2,
+    CASTLE: 4,
   });
 
   // prettier-ignore
@@ -66,12 +87,19 @@ const Xiangqi = function (fen) {
     a1: 0x80, b1: 0x81, c1: 0x82, d1: 0x83, e1: 0x84, f1: 0x85, g1: 0x86, h1: 0x87, i1: 0x88,
     a0: 0x90, b0: 0x91, c0: 0x92, d0: 0x93, e0: 0x94, f0: 0x95, g0: 0x96, h0: 0x97, i0: 0x98,
   });
+  const CASTLES = {
+    K: { from: SQUARES.e0, to: SQUARES.i0, kingTo: SQUARES.f0 },
+    Q: { from: SQUARES.e0, to: SQUARES.a0, kingTo: SQUARES.d0 },
+    k: { from: SQUARES.e9, to: SQUARES.i9, kingTo: SQUARES.f9 },
+    q: { from: SQUARES.e9, to: SQUARES.a9, kingTo: SQUARES.d9 },
+  };
 
   let board = new Array(256);
   let kings = { r: EMPTY, b: EMPTY };
   let turn = RED;
   let half_moves = 0;
   let move_number = 1;
+  let castling_rights = '';
   let history = [];
   let futures = [];
   let header = {};
@@ -93,6 +121,7 @@ const Xiangqi = function (fen) {
     turn = RED;
     half_moves = 0;
     move_number = 1;
+    castling_rights = '';
     history = [];
     futures = [];
     if (!keep_headers) header = {};
@@ -100,7 +129,7 @@ const Xiangqi = function (fen) {
   }
 
   function reset() {
-    load(DEFAULT_POSITION);
+    load(palaceCastling && typeof fen === 'string' ? fen : DEFAULT_POSITION);
   }
 
   function load(fen, keep_headers) {
@@ -135,6 +164,7 @@ const Xiangqi = function (fen) {
     }
 
     turn = tokens[1] === BLACK ? BLACK : RED;
+    castling_rights = tokens[2] === '-' ? '' : tokens[2];
 
     half_moves = parseInt(tokens[4], 10);
     move_number = parseInt(tokens[5], 10);
@@ -200,7 +230,7 @@ const Xiangqi = function (fen) {
     }
 
     /* 5th criterion: 3th field is a valid castle-string? */
-    if (!/^-$/.test(tokens[2])) {
+    if (!(palaceCastling ? /^(?:-|(?=.)K?Q?k?q?)$/ : /^-$/).test(tokens[2])) {
       return result(5);
     }
 
@@ -226,6 +256,7 @@ const Xiangqi = function (fen) {
       a: { number: 0, squares: [] }, A: { number: 0, squares: [] },
       k: { number: 0, squares: [] }, K: { number: 0, squares: [] },
       };
+    for (const piece of EXTRA_SYMBOLS) pieces[piece] = { number: 0, squares: [] };
     let i, j, sum_fields, previous_was_number;
     for (i = 0; i < rows.length; i++) {
       /* check for right sum of fields AND not two numbers in succession */
@@ -259,22 +290,22 @@ const Xiangqi = function (fen) {
     if (pieces.k.number !== 1 || pieces.K.number !== 1) {
       return result(11);
     }
-    if (pieces.a.number > 2 || pieces.A.number > 2) {
+    if (!jieqi && (pieces.a.number + (pieces.s?.number || 0) > 2 || pieces.A.number + (pieces.S?.number || 0) > 2)) {
       return result(12);
     }
-    if (pieces.b.number > 2 || pieces.B.number > 2) {
+    if (!jieqi && (pieces.b.number + (pieces.m?.number || 0) > 2 || pieces.B.number + (pieces.M?.number || 0) > 2)) {
       return result(13);
     }
-    if (pieces.n.number > 2 || pieces.N.number > 2) {
+    if (!jieqi && (pieces.n.number + (pieces.j?.number || 0) > 2 || pieces.N.number + (pieces.J?.number || 0) > 2)) {
       return result(14);
     }
-    if (pieces.r.number > 2 || pieces.R.number > 2) {
+    if (!jieqi && (pieces.r.number > 2 || pieces.R.number > 2)) {
       return result(15);
     }
-    if (pieces.c.number > 2 || pieces.C.number > 2) {
+    if (!jieqi && (pieces.c.number + (pieces.q?.number || 0) > 2 || pieces.C.number + (pieces.Q?.number || 0) > 2)) {
       return result(16);
     }
-    if (pieces.p.number > 5 || pieces.P.number > 5) {
+    if (!jieqi && (pieces.p.number > 5 || pieces.P.number > 5)) {
       return result(17);
     }
 
@@ -354,7 +385,7 @@ const Xiangqi = function (fen) {
       }
     }
 
-    return [fen, turn, '-', '-', half_moves, move_number].join(' ');
+    return [fen, turn, castling_rights || '-', '-', half_moves, move_number].join(' ');
   }
 
   function set_header(args) {
@@ -450,6 +481,19 @@ const Xiangqi = function (fen) {
     return move;
   }
 
+  function add_castles(moves, us, first_sq, last_sq) {
+    const king = kings[us];
+    if (!castling_rights || king < first_sq || king > last_sq || king_attacked(us)) return;
+    for (const right of us === RED ? 'KQ' : 'kq') {
+      const { from, to, kingTo } = CASTLES[right];
+      if (!castling_rights.includes(right) || king !== from || board[to]?.type !== ROOK || board[to].color !== us) continue;
+      const step = Math.sign(to - from);
+      let square = from + step;
+      while (square !== to && board[square] == null) square += step;
+      if (square === to) moves.push({ color: us, from, to, piece: KING, flags: BITS.CASTLE, kingTo });
+    }
+  }
+
   function generate_moves(options) {
     function add_move(board, moves, from, to, flags) {
       moves.push(build_move(board, from, to, flags));
@@ -488,7 +532,8 @@ const Xiangqi = function (fen) {
       piece = board[i];
       if (piece == null || piece.color !== us) continue;
 
-      OFFSETS = piece.type === PAWN ? PAWN_OFFSETS[us] : PIECE_OFFSETS[piece.type];
+      OFFSETS = piece.type === PAWN ? PAWN_OFFSETS[us] : (TRANSFORMED_OFFSETS[piece.type] || PIECE_OFFSETS[piece.type]);
+      const range = SLIDING_RANGE[piece.type] || 1;
 
       for (j = 0, len = OFFSETS.length; j < len; ++j) {
         if (piece.type === PAWN && j > 0 && !crossed_river(i, us)) break;
@@ -497,12 +542,13 @@ const Xiangqi = function (fen) {
         square = i;
         crossed = false;
 
-        while (true) {
+        for (let step = 1; ; ++step) {
           square += offset;
 
           if (out_of_board(square)) break;
           else if (piece.type === KNIGHT && hobbling_horse_leg(i, j)) break;
           else if (piece.type === BISHOP && (blocking_elephant_eye(i, j) || crossed_river(square, us))) break;
+          else if (piece.type === FREE_ELEPHANT && blocking_elephant_eye(i, j)) break;
           else if ((piece.type === ADVISER || piece.type === KING) && out_of_place(piece.type, square, us)) break;
 
           if (board[square] == null) {
@@ -520,7 +566,7 @@ const Xiangqi = function (fen) {
               break;
             }
           }
-          if (piece.type !== CANNON && piece.type !== ROOK) break;
+          if (piece.type !== CANNON && piece.type !== ROOK && step >= range) break;
         }
       }
 
@@ -528,11 +574,13 @@ const Xiangqi = function (fen) {
         i = i + 0x07;
       }
     }
+    if (palaceCastling) add_castles(moves, us, first_sq, last_sq);
 
     /* return all pseudo-legal moves (this includes moves that allow the king
      * to be captured)
      */
     if (!legal) {
+      if (opponent) turn = swap_color(turn);
       return moves;
     }
 
@@ -595,23 +643,37 @@ const Xiangqi = function (fen) {
         board[sq] != null &&
         !out_of_board(sq) &&
         board[sq].color === them &&
-        board[sq].type === KNIGHT &&
-        !hobbling_horse_leg(sq, i < 4 ? 3 - i : 11 - i)
+        (board[sq].type === LEAPING_HORSE || (board[sq].type === KNIGHT && !hobbling_horse_leg(sq, i < 4 ? 3 - i : 11 - i)))
       )
         return true;
+    }
+    if (palaceCastling || jieqi) {
+      for (const offset of PIECE_OFFSETS[ADVISER]) {
+        for (let step = 1; step <= (jieqi ? 2 : ELEPHANT_RANGE); ++step) {
+          const target = square + step * offset;
+          if (out_of_board(target)) break;
+          const piece = board[target];
+          if (!piece) continue;
+          if (piece.color === them && (piece.type === DIAGONAL_ELEPHANT || (piece.type === SHORT_QUEEN && step <= QUEEN_RANGE)
+            || (step === 1 && (piece.type === GUARD || piece.type === FREE_ADVISER)) || (step === 2 && piece.type === FREE_ELEPHANT))) return true;
+          break;
+        }
+      }
     }
     // king, rook, cannon
     for (i = 0, len = PIECE_OFFSETS[ROOK].length; i < len; ++i) {
       let offset = PIECE_OFFSETS[ROOK][i];
       let crossed = false;
-      for (sq = square + offset; !out_of_board(sq); sq += offset) {
+      sq = square + offset;
+      for (let step = 1; !out_of_board(sq); sq += offset, ++step) {
         let piece = board[sq];
         if (piece != null) {
           if (piece.color === them) {
             if (crossed) {
               if (piece.type === CANNON) return true;
             } else {
-              if (piece.type === ROOK || piece.type === KING) return true;
+              if (piece.type === ROOK || piece.type === KING || (piece.type === GUARD && step === 1)
+                || (piece.type === SHORT_QUEEN && step <= QUEEN_RANGE)) return true;
             }
           }
           if (crossed) break;
@@ -622,7 +684,8 @@ const Xiangqi = function (fen) {
     // pawn
     for (i = 0, len = PAWN_OFFSETS[them].length; i < len; ++i) {
       sq = square - PAWN_OFFSETS[them][i];
-      if (board[sq] != null && !out_of_board(sq) && board[sq].color === them && board[sq].type === PAWN) return true;
+      if (board[sq] != null && !out_of_board(sq) && board[sq].color === them && board[sq].type === PAWN
+        && (!jieqi || i === 0 || crossed_river(sq, them))) return true;
     }
 
     return false;
@@ -658,6 +721,8 @@ const Xiangqi = function (fen) {
 
     /* k vs. k */
     if (num_pieces === 2) return true;
+    if (jieqi) return false;
+    if (pieces[LEAPING_HORSE] || pieces[DIAGONAL_ELEPHANT] || pieces[GUARD] || pieces[SHORT_QUEEN]) return false;
     else if (
       typeof pieces[KNIGHT] === 'undefined' &&
       typeof pieces[ROOK] === 'undefined' &&
@@ -713,21 +778,31 @@ const Xiangqi = function (fen) {
       turn: turn,
       half_moves: half_moves,
       move_number: move_number,
+      castling_rights: castling_rights,
     });
   }
 
   function make_move(move) {
     push(history, move);
 
-    // if king was captured
-    if (board[move.to] != null && board[move.to].type === KING) kings[board[move.to].color] = EMPTY;
-
-    board[move.to] = board[move.from];
-    board[move.from] = null;
-
-    /* if we moved the king */
-    if (board[move.to].type === KING) {
-      kings[board[move.to].color] = move.to;
+    if (castling_rights) {
+      castling_rights = [...castling_rights].filter(right => {
+        const castle = CASTLES[right];
+        return move.from !== castle.from && move.from !== castle.to && move.to !== castle.to;
+      }).join('');
+    }
+    if (move.flags & BITS.CASTLE) {
+      // The wire move targets the chosen rook, distinct from a normal king step.
+      board[move.kingTo] = board[move.from];
+      board[move.from] = board[move.to];
+      board[move.to] = null;
+      kings[turn] = move.kingTo;
+    } else {
+      // if king was captured
+      if (board[move.to]?.type === KING) kings[board[move.to].color] = EMPTY;
+      board[move.to] = board[move.from];
+      board[move.from] = null;
+      if (board[move.to].type === KING) kings[turn] = move.to;
     }
 
     /* reset the 60 move counter if a piece is captured */
@@ -753,6 +828,14 @@ const Xiangqi = function (fen) {
     turn = old.turn;
     half_moves = old.half_moves;
     move_number = old.move_number;
+    castling_rights = old.castling_rights;
+
+    if (move.flags & BITS.CASTLE) {
+      board[move.to] = board[move.from];
+      board[move.from] = board[move.kingTo];
+      board[move.kingTo] = null;
+      return move;
+    }
 
     board[move.from] = board[move.to];
     board[move.from].type = move.piece;
@@ -933,6 +1016,7 @@ const Xiangqi = function (fen) {
     // K, A, B, P
     let side = {};
     if (piece === PAWN) {
+      if (jieqi) return out_of_board(square);
       side = [0, 2, 4, 6, 8];
       if (color === RED) {
         return rank(square) > 6 || (rank(square) > 4 && side.indexOf(file(square)) === -1);
@@ -975,6 +1059,7 @@ const Xiangqi = function (fen) {
     move.iccs = move_to_iccs(move, false);
     move.to = algebraic(move.to);
     move.from = algebraic(move.from);
+    if (move.kingTo !== undefined) move.kingTo = algebraic(move.kingTo);
     move.piece = turn === RED ? move.piece.toUpperCase() : move.piece;
 
     let flags = '';
@@ -1061,6 +1146,8 @@ const Xiangqi = function (fen) {
       return keys;
     })(),
     FLAGS: FLAGS,
+    palaceCastling,
+    legacyCastling,
 
     /***************************************************************************
      * PUBLIC API
@@ -1435,6 +1522,12 @@ const Xiangqi = function (fen) {
     },
 
     undo: function () {
+      if (palaceCastling) {
+        const move = undo_move();
+        if (!move) return null;
+        futures.push(move);
+        return make_pretty(move);
+      }
       push(futures, null);
       const move = undo_move();
       if (move) {
@@ -1449,6 +1542,13 @@ const Xiangqi = function (fen) {
     },
 
     redo: function () {
+      if (palaceCastling) {
+        const move = futures.pop();
+        if (!move) return null;
+        const pretty_move = make_pretty(move);
+        make_move(move);
+        return pretty_move;
+      }
       push(history, null);
       const move = redo_move();
       if (move) {

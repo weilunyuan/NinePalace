@@ -36,6 +36,11 @@ let submittingMove = false;
 let boardMotion = null;
 const boardMoveQueue = [];
 const t = (key, values) => window.npI18n.t(key, values);
+const SAVED_GAMES_KEY = "ninepalace.saved-games.v2";
+const LEGACY_GAMES_KEY = "ninepalace.saved-games.v1";
+const RECENT_GAMES_LIMIT = 30;
+const castling = window.NinePalaceCastling;
+const jieqi = window.NinePalaceJieqi;
 const MATING_PATTERNS = {
   "smothered-cannon": { name: "mateSmothered", description: "mateSmotheredDescription", symbols: ["c"] },
   "iron-bolt": { name: "mateIronBolt", description: "mateIronBoltDescription", symbols: ["c", "r"] },
@@ -49,7 +54,14 @@ function engineNameFor(engineId) {
 }
 
 function currentEngineName(currentState = state) {
+  if (currentState?.variant === jieqi.variant) return t("jieqiAI");
   return currentState?.engineName || engineNameFor(currentState?.engineId);
+}
+
+function variantTitle(variant) {
+  if (variant === jieqi.variant) return "jieqiTitle";
+  if (variant === castling.variant || variant === castling.legacyVariant) return "castlingTitle";
+  return null;
 }
 
 function handCharacterFor(color) {
@@ -77,11 +89,27 @@ function boardPoint(file, row) {
   return { x: 25 + file * 50, y: 25 + row * 50 };
 }
 
+function pieceAt(board, square) {
+  return board[9 - Number(square[1])]?.[FILES.indexOf(square[0])];
+}
+
+function castlingKingSquare(move) {
+  return /^e([09])[ai]\1$/.test(move) ? `${move[2] === "a" ? "d" : "f"}${move[1]}` : null;
+}
+
+function castlingRook(move, board) {
+  if (!castlingKingSquare(move)) return null;
+  const king = pieceAt(board, move.slice(0, 2));
+  const rook = pieceAt(board, move.slice(2));
+  return king?.type === "k" && rook?.type === "r" && king.color === rook.color ? rook : null;
+}
+
 function boardIsFlipped(svg = boardNode) {
   return (svg === replayBoardNode ? currentReplay : state)?.playerColor === "b";
 }
 
 function pieceElement(piece, point, extraClass = "") {
+  const card = castling.cards[piece.type];
   const group = svgElement("g", {
     class: `piece ${piece.color === "r" ? "red" : "black"}${extraClass ? ` ${extraClass}` : ""}`,
     "aria-hidden": "true",
@@ -90,9 +118,21 @@ function pieceElement(piece, point, extraClass = "") {
   group.append(svgElement("circle", { cx: point.x, cy: point.y + 2, r: 18, class: "piece-depth" }));
   group.append(svgElement("circle", { cx: point.x, cy: point.y, r: 18 }));
   group.append(svgElement("circle", { cx: point.x, cy: point.y, r: 15.5, class: "piece-ring" }));
+  if (piece.covered) {
+    group.dataset.covered = "true";
+    group.append(svgElement("path", { d: "M0 -8L8 0 0 8 -8 0ZM0 -3L3 0 0 3 -3 0Z",
+      transform: `translate(${point.x} ${point.y})`, class: "covered-mark" }));
+    return group;
+  }
   const text = svgElement("text", { x: point.x, y: point.y + 1 });
-  text.textContent = PIECES[piece.color]?.[piece.type] || "?";
+  text.textContent = PIECES[piece.color]?.[card?.type || jieqi.originalRole[piece.type] || piece.type] || "?";
   group.append(text);
+  if (card) {
+    group.dataset.transformedPiece = piece.type;
+    const x = point.x + 13;
+    const y = point.y - 13;
+    group.append(svgElement("path", { d: `M${x} ${y - 5}l5 5-5 5-5-5Z`, class: "castling-piece-mark" }));
+  }
   return group;
 }
 
@@ -127,7 +167,13 @@ function drawBoard(svg, board, interactive, lastMove = null, movingMove = null, 
   svg.append(river);
 
   if (lastMove) {
-    for (const square of [lastMove.slice(0, 2), lastMove.slice(2, 4)]) {
+    const from = lastMove.slice(0, 2);
+    const to = lastMove.slice(2, 4);
+    const kingTo = castlingKingSquare(lastMove);
+    const squares = [from, to];
+    if (movingMove?.rook) squares.push(movingMove.rook.from);
+    else if (kingTo && !pieceAt(board, to) && pieceAt(board, from)?.type === "r" && pieceAt(board, kingTo)?.type === "k") squares.push(kingTo);
+    for (const square of squares) {
       const file = FILES.indexOf(square[0]);
       const row = 9 - Number(square[1]);
       const point = pointAt(file, row);
@@ -142,6 +188,7 @@ function drawBoard(svg, board, interactive, lastMove = null, movingMove = null, 
     svg.append(svgElement("circle", { cx: point.x, cy: point.y, r: 21, class: "selected-square", "aria-hidden": "true" }));
   }
 
+  const castleTargets = new Set();
   if (interactive) {
     for (const move of legalTargets) {
       const target = move.slice(2, 4);
@@ -149,7 +196,12 @@ function drawBoard(svg, board, interactive, lastMove = null, movingMove = null, 
       const row = 9 - Number(target[1]);
       const point = pointAt(file, row);
       const hasPiece = Boolean(board[row]?.[file]);
-      svg.append(svgElement("circle", { cx: point.x, cy: point.y, r: hasPiece ? 19 : 7, class: hasPiece ? "legal-ring" : "legal-dot", "aria-hidden": "true" }));
+      if (castlingRook(move, board)) {
+        castleTargets.add(target);
+        svg.append(svgElement("circle", { cx: point.x, cy: point.y, r: 21, class: "castling-target", "aria-hidden": "true" }));
+      } else {
+        svg.append(svgElement("circle", { cx: point.x, cy: point.y, r: hasPiece ? 19 : 7, class: hasPiece ? "legal-ring" : "legal-dot", "aria-hidden": "true" }));
+      }
     }
     if (keyboardSquare) {
       const file = FILES.indexOf(keyboardSquare[0]);
@@ -163,7 +215,7 @@ function drawBoard(svg, board, interactive, lastMove = null, movingMove = null, 
   let capturedPiece = null;
   board.forEach((row, rowIndex) => row.forEach((piece, file) => {
     if (!piece) return;
-    if (animateMove && movingMove.to === squareAt(file, rowIndex)) return;
+    if (animateMove && [movingMove.to, movingMove.rook?.to].includes(squareAt(file, rowIndex))) return;
     const point = pointAt(file, rowIndex);
     pieces.append(pieceElement(piece, point));
   }));
@@ -301,6 +353,18 @@ function drawBoard(svg, board, interactive, lastMove = null, movingMove = null, 
     handLayer.append(handCarrier);
     svg.append(ripple, carrier, handLayer);
     const translate = point => `translate(${point.x}px, ${point.y}px)`;
+    if (movingMove.rook) {
+      const rookStart = pointAt(FILES.indexOf(movingMove.rook.from[0]), fromRow);
+      const rook = pieceElement(movingMove.rook.piece, { x: 0, y: 0 }, "castling-rook-motion");
+      carrier.before(rook);
+      rook.animate([
+        { transform: translate(rookStart), offset: 0 },
+        { transform: translate(rookStart), offset: .28, easing: glide },
+        { transform: translate({ x: (rookStart.x + fromPoint.x) / 2, y: fromPoint.y + (bottomSeat ? -26 : 26) }), offset: .5, easing: glide },
+        { transform: translate(fromPoint), offset: .73 },
+        { transform: translate(fromPoint), offset: 1 },
+      ], timing);
+    }
     // One uninterrupted glide; the independent lift/hand tracks overlap instead of stopping at every pose.
     const travelFrames = [
       { transform: translate(fromPoint), offset: 0 },
@@ -318,7 +382,15 @@ function drawBoard(svg, board, interactive, lastMove = null, movingMove = null, 
       { transform: lift(26, 1.12, 1), offset: .55 / .73, easing: glide },
       { transform: lift(0), offset: 1 },
     ], { ...timing, duration: duration * .73 });
-    landing.finished.then(() => capturedPiece?.remove(), () => {});
+    landing.finished.then(() => {
+      capturedPiece?.remove();
+      if (movingMove.revealed) {
+        movingPiece.replaceChildren(...pieceElement(movingMove.revealed, { x: 0, y: 0 }).childNodes);
+        delete movingPiece.dataset.covered;
+        movingPiece.animate([{ transform: "scaleX(.15)" }, { transform: "scaleX(1)" }],
+          { duration: 150, easing: "ease-out", fill: "forwards" });
+      }
+    }, () => {});
     shadow.animate([
       { transform: "scale(1)", opacity: .16, filter: "blur(.6px)", offset: 0 },
       { transform: "scale(1)", opacity: .16, filter: "blur(.6px)", offset: .25, easing: glide },
@@ -355,7 +427,9 @@ function drawBoard(svg, board, interactive, lastMove = null, movingMove = null, 
         const piece = board[rowIndex][file];
         const point = pointAt(file, rowIndex);
         const square = squareAt(file, rowIndex);
-        const pieceName = piece ? window.npI18n.pieceName(piece.color, piece.type) : t("emptySquare");
+        const card = piece && castling.cards[piece.type];
+        const roleName = piece ? window.npI18n.pieceName(piece.color, card?.type || jieqi.originalRole[piece.type] || piece.type) : t("emptySquare");
+        const pieceName = piece?.covered ? t("jieqiCoveredRole", { role: roleName }) : roleName;
         rowNode.append(svgElement("rect", {
           id: `${svg.id}-square-${square}`,
           x: point.x - 22,
@@ -370,7 +444,7 @@ function drawBoard(svg, board, interactive, lastMove = null, movingMove = null, 
           "aria-colindex": displayFile + 1,
           "aria-selected": String(selectedSquare === square),
           tabindex: "-1",
-          "aria-label": `${pieceName}, ${t("fileRank", { file: square[0], rank: square[1] })}`,
+          "aria-label": `${pieceName}${card ? ` · ${t(card.name)}` : ""}, ${t("fileRank", { file: square[0], rank: square[1] })}${castleTargets.has(square) ? ` · ${t("castlingTarget")}` : ""}`,
         }));
       }
       hitAreas.append(rowNode);
@@ -403,6 +477,10 @@ function showScreen(name) {
 
 function moveNotation(move, game) {
   if (!move || move.length !== 4) return "—";
+  if (game?.palaceCastling && castlingRook(move, game.board())) {
+    const left = (move[2] === "a") === (game.turn() === "r");
+    return t(left ? "castlingLeft" : "castlingRight");
+  }
   if (window.npI18n.getLanguage() !== "zh") return `${move.slice(0, 2)} → ${move.slice(2, 4)}`;
   if (game) {
     const fromFile = FILES.indexOf(move[0].toLowerCase());
@@ -414,29 +492,82 @@ function moveNotation(move, game) {
   return `${move.slice(0, 2)} → ${move.slice(2, 4)}`;
 }
 
-function gameAtPly(moves, ply) {
-  const game = new window.NinePalaceXiangqi();
+function positionFor({ draw, variant, playerColor } = {}, fen) {
+  if (variant === jieqi.variant) return jieqi.game({ viewer: playerColor || "r" });
+  return draw ? castling.game(draw, fen, variant) : new window.NinePalaceXiangqi(fen);
+}
+
+function playRecordedMove(game, move, code) {
+  return game.jieqi ? game.move(move, code) : game.move(move);
+}
+
+function gameAtPly(moves, ply, position) {
+  const game = positionFor(position);
   for (let index = 0; index < ply; index += 1) {
-    if (!game.move(moves[index])) throw new Error(`棋谱回放遇到非法着法：${moves[index]}`);
+    if (!playRecordedMove(game, moves[index], position?.jieqiLog?.[index])) throw new Error(`棋谱回放遇到非法着法：${moves[index]}`);
   }
   return game;
 }
 
-function moveNotations(moves, game = new window.NinePalaceXiangqi()) {
+function jieqiRevealNote(code, side, capturedCover = false) {
+  if (!code) return "";
+  const [revealed, captured] = code;
+  const note = [];
+  if (revealed !== "-") note.push(t("jieqiReveal", { piece: window.npI18n.pieceName(side, revealed) }));
+  if (captured !== "-") note.push(t("jieqiCapture", { piece: window.npI18n.pieceName(side === "r" ? "b" : "r", captured) }));
+  else if (capturedCover) note.push(t("jieqiHiddenCapture"));
+  return note.join(" · ");
+}
+
+function moveNotations(moves, game = new window.NinePalaceXiangqi(), jieqiLog) {
   const notations = [];
-  for (const move of moves) {
-    notations.push(moveNotation(move, game));
-    if (!game.move(move)) throw new Error(`棋谱回放遇到非法着法：${move}`);
+  for (const [index, move] of moves.entries()) {
+    const notation = moveNotation(move, game);
+    const code = jieqiLog?.[index];
+    const note = code ? jieqiRevealNote(code, game.turn(), pieceAt(game.board(), move.slice(2))?.covered) : "";
+    notations.push(note ? `${notation} · ${note}` : notation);
+    if (!playRecordedMove(game, move, code)) throw new Error(`棋谱回放遇到非法着法：${move}`);
   }
   return notations;
 }
 
-function readSavedGames() {
+function emptyGameArchive() {
+  return { records: [], archivedStats: { wins: 0, draws: 0, losses: 0, mates: {} } };
+}
+
+function readGameArchive() {
+  const archive = emptyGameArchive();
   try {
-    const value = JSON.parse(localStorage.getItem("ninepalace.saved-games.v1") || "[]");
-    return Array.isArray(value) ? value.filter((record) => record && typeof record.id === "string" && Array.isArray(record.moves)) : [];
+    const value = JSON.parse(localStorage.getItem(SAVED_GAMES_KEY) ?? localStorage.getItem(LEGACY_GAMES_KEY) ?? "null");
+    const records = Array.isArray(value) ? value : value?.records;
+    if (Array.isArray(records)) {
+      archive.records = records.filter((record) => record && typeof record.id === "string" && Array.isArray(record.moves)
+        && (!record.draw || castling.validDraw(record.draw, record.variant))
+        && (record.variant !== jieqi.variant || jieqi.validLog(record.jieqiLog, record.moves.length)));
+    }
+    if (value?.archivedStats) archive.archivedStats = value.archivedStats;
   } catch {
-    return [];
+    return emptyGameArchive();
+  }
+  return archive;
+}
+
+function readSavedGames() {
+  return readGameArchive().records;
+}
+
+function countFinishedGame(stats, record) {
+  if (record.winner === "draw") {
+    stats.draws += 1;
+    return;
+  }
+  if (record.winner !== "red" && record.winner !== "black") return;
+  const result = outcomeTitleKey(record.winner, record.playerColor) === "resultWin" ? "wins" : "losses";
+  stats[result] += 1;
+  if (record.reason === "将死") {
+    const id = Object.hasOwn(MATING_PATTERNS, record.pattern?.id) ? record.pattern.id : "other";
+    const pattern = stats.mates[id] ??= { wins: 0, losses: 0 };
+    pattern[result] += 1;
   }
 }
 
@@ -449,26 +580,27 @@ function persistFinishedGame(nextState) {
   const signature = JSON.stringify([nextState.roomCode, nextState.engineId, nextState.playerColor, nextState.history, nextState.outcome]);
   if (signature === lastSavedGameSignature) return;
   try {
-    const Game = window.NinePalaceXiangqi;
-    const replay = new Game();
-    for (const move of nextState.history) {
-      if (!replay.move(move)) throw new Error(`无法重建棋谱着法 ${move}`);
-    }
-    const records = readSavedGames();
-    records.unshift({
+    const replay = gameAtPly(nextState.history, nextState.history.length, nextState);
+    const archive = readGameArchive();
+    archive.records.unshift({
       id: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
       finishedAt: new Date().toISOString(),
       winner: nextState.outcome.winner,
       reason: nextState.outcome.reason,
       pattern: nextState.outcome.pattern || null,
       mode: nextState.mode,
+      ...(nextState.draw ? { variant: nextState.variant, draw: nextState.draw } : {}),
+      ...(nextState.jieqiLog ? { variant: nextState.variant, jieqiLog: [...nextState.jieqiLog] } : {}),
       engineId: nextState.engineId || "pikafish",
       playerColor: nextState.playerColor || "r",
       moves: [...nextState.history],
       pgn: replay.pgn(),
       finalFen: replay.fen(),
     });
-    localStorage.setItem("ninepalace.saved-games.v1", JSON.stringify(records.slice(0, 30)));
+    for (const record of archive.records.splice(RECENT_GAMES_LIMIT)) {
+      countFinishedGame(archive.archivedStats, record);
+    }
+    localStorage.setItem(SAVED_GAMES_KEY, JSON.stringify(archive));
     lastSavedGameSignature = signature;
   } catch (error) {
     console.warn("NinePalace 无法保存本地棋谱", error);
@@ -498,14 +630,44 @@ function friendOutcomeTitle(outcome, color = state?.playerColor) {
 }
 
 function recordOutcomeTitle(record) {
-  if (record.mode === "friend") return friendOutcomeTitle(record, record.playerColor);
-  return t(outcomeTitleKey(record.winner, record.playerColor), { engine: engineNameFor(record.engineId) });
+  const title = record.mode === "friend" ? friendOutcomeTitle(record, record.playerColor)
+    : t(outcomeTitleKey(record.winner, record.playerColor), { engine: record.variant === jieqi.variant ? t("jieqiAI") : engineNameFor(record.engineId) });
+  const mode = variantTitle(record.variant);
+  return mode ? `${t(mode)} · ${title}` : title;
 }
 
-function renderHistory() {
+function renderAccount() {
+  const { records, archivedStats: stats } = readGameArchive();
+  for (const record of records) countFinishedGame(stats, record);
+
+  const locale = window.npI18n.getLanguage() === "en" ? "en-US" : "zh-CN";
+  const total = stats.wins + stats.draws + stats.losses;
+  for (const [key, value] of Object.entries({ total, wins: stats.wins, draws: stats.draws, losses: stats.losses })) {
+    document.querySelector(`#account-${key}`).textContent = value.toLocaleString(locale);
+  }
+  document.querySelector("#account-win-rate").textContent = total
+    ? (stats.wins / total).toLocaleString(locale, { style: "percent", maximumFractionDigits: 1 }) : "—";
+
+  const patterns = Object.entries(stats.mates).sort(([, left], [, right]) => right.wins + right.losses - left.wins - left.losses);
+  const rows = document.querySelector("#account-mates-rows");
+  rows.replaceChildren();
+  for (const [id, pattern] of patterns) {
+    const row = rows.insertRow();
+    const name = document.createElement("th");
+    name.scope = "row";
+    name.textContent = t(MATING_PATTERNS[id]?.name || "accountOtherMate");
+    row.append(name);
+    row.insertCell().textContent = pattern.wins.toLocaleString(locale);
+    row.insertCell().textContent = pattern.losses.toLocaleString(locale);
+  }
+  document.querySelector("#account-mates").hidden = patterns.length === 0;
+  document.querySelector("#account-mates-empty").hidden = patterns.length > 0;
+  renderHistory(records, locale);
+}
+
+function renderHistory(records, locale) {
   const list = document.querySelector("#history-list");
   list.replaceChildren();
-  const records = readSavedGames();
   if (!records.length) {
     const empty = document.createElement("p");
     empty.className = "history-empty";
@@ -513,7 +675,6 @@ function renderHistory() {
     list.append(empty);
     return;
   }
-  const locale = window.npI18n.getLanguage() === "en" ? "en-US" : "zh-CN";
   for (const record of records) {
     const button = document.createElement("button");
     button.className = "history-entry";
@@ -559,6 +720,8 @@ function renderReviewPanel() {
   const summary = document.querySelector("#review-summary");
   const detail = document.querySelector("#review-detail");
   const inProgress = analysisRunningId === currentReplay?.id;
+  start.hidden = Boolean(currentReplay?.draw || currentReplay?.variant === jieqi.variant);
+  document.querySelector(".review-help").hidden = start.hidden;
   start.disabled = Boolean(analysisRunningId) || !currentReplay?.moves?.length;
   start.textContent = currentReplay?.analysis ? t("reviewRerun") : t("reviewStart");
   progress.hidden = !inProgress;
@@ -577,7 +740,7 @@ function renderReviewPanel() {
     detail.hidden = false;
     const hint = document.createElement("p");
     hint.className = "review-selection-hint";
-    hint.textContent = t("reviewSelectMove");
+    hint.textContent = t(currentReplay?.variant === jieqi.variant ? "jieqiReplay" : currentReplay?.draw ? "castlingReplay" : "reviewSelectMove");
     detail.append(hint);
     return;
   }
@@ -657,9 +820,11 @@ function renderReviewPanel() {
 
 function saveReplayAnalysis(recordId, analysis) {
   try {
-    const records = readSavedGames();
-    const updated = records.map((record) => record.id === recordId ? { ...record, analysis } : record);
-    localStorage.setItem("ninepalace.saved-games.v1", JSON.stringify(updated));
+    const archive = readGameArchive();
+    const record = archive.records.find((saved) => saved.id === recordId);
+    if (!record) return;
+    record.analysis = analysis;
+    localStorage.setItem(SAVED_GAMES_KEY, JSON.stringify(archive));
   } catch (error) {
     console.warn("NinePalace 无法保存复盘结果", error);
   }
@@ -668,11 +833,8 @@ function saveReplayAnalysis(recordId, analysis) {
 function renderReplay() {
   if (!currentReplay) return;
   const moves = currentReplay.moves;
-  const notations = moveNotations(moves);
-  const game = new window.NinePalaceXiangqi();
-  for (let index = 0; index < replayIndex; index += 1) {
-    if (!game.move(moves[index])) throw new Error(`棋谱回放遇到非法着法：${moves[index]}`);
-  }
+  const notations = moveNotations(moves, positionFor(currentReplay), currentReplay.jieqiLog);
+  const game = gameAtPly(moves, replayIndex, currentReplay);
   const selectedReview = Number.isInteger(selectedReviewIndex) ? currentReplay.analysis?.moves?.[selectedReviewIndex] : null;
   drawBoard(
     replayBoardNode,
@@ -749,7 +911,7 @@ function renderMoves(history) {
     list.append(empty);
     return;
   }
-  const notations = moveNotations(history);
+  const notations = moveNotations(history, positionFor(state), state.jieqiLog);
   for (let index = 0; index < history.length; index += 2) {
     const row = document.createElement("div");
     row.className = "move-row";
@@ -805,7 +967,8 @@ function renderResult() {
   document.querySelector("#result-pattern-name").textContent = t(presentation.name);
   document.querySelector("#result-pattern-description").textContent = t(presentation.description);
   drawBoard(document.querySelector("#result-board"), state.board, false, state.history.at(-1), null, null, state.outcome.pattern);
-  document.querySelector("#result-final-move").textContent = moveNotations(state.history).at(-1) || "";
+  const notations = moveNotations(state.history, positionFor(state), state.jieqiLog);
+  document.querySelector("#result-final-move").textContent = notations.at(-1) || "";
   document.querySelector("#result-review").disabled = !state.history.length || !finishedRecord();
   document.querySelector("#result-score").innerHTML = isFriendRoom
     ? t(state.outcome.winner === "draw" ? "friendScoreDraw" : playerWon ? "friendScoreWin" : "friendScoreLoss")
@@ -816,7 +979,6 @@ function renderResult() {
   document.querySelector('[data-screen="result"] [data-action="start"]').hidden = isFriendRoom;
   const moves = document.querySelector("#result-moves");
   moves.replaceChildren();
-  const notations = moveNotations(state.history);
   for (let index = 0; index < state.history.length; index += 2) {
     const row = document.createElement("div");
     row.className = "move-row";
@@ -853,7 +1015,7 @@ function renderFinishCopy() {
   });
   for (const type of participants.length ? participants : copy.symbols) {
     const chip = document.createElement("span");
-    chip.textContent = PIECES[color][type];
+    chip.textContent = PIECES[color][jieqi.originalRole[type] || type];
     symbols.append(chip);
   }
 }
@@ -903,6 +1065,7 @@ finishDialog.addEventListener("close", () => {
 
 function finishedRecord() {
   return readSavedGames().find((record) => record.reason === state?.outcome?.reason
+    && record.variant === state.variant
     && (record.playerColor || "r") === (state.playerColor || "r")
     && record.moves.length === state.history.length && record.moves.every((move, index) => move === state.history[index]));
 }
@@ -954,9 +1117,67 @@ function renderTutorial() {
   document.querySelector("#lesson-exit").textContent = step.action;
 }
 
+function renderCastlingDraw() {
+  const panel = document.querySelector("#castling-draw-card");
+  const results = document.querySelector("#castling-draw-results");
+  const { draw, roomCode } = state;
+  panel.hidden = !draw;
+  if (!draw) {
+    delete results.dataset.draw;
+    return;
+  }
+  const drawId = `${roomCode}:${castling.drawKey(draw)}`;
+  const language = window.npI18n.getLanguage();
+  const reveal = results.dataset.draw !== drawId;
+  if (!reveal && results.dataset.language === language) return;
+  results.dataset.draw = drawId;
+  results.dataset.language = language;
+  results.replaceChildren();
+  for (const side of ["r", "b"]) {
+    const row = document.createElement("div");
+    row.className = "castling-draw-row";
+    row.dataset.side = side;
+    const title = document.createElement("strong");
+    title.textContent = t(side === "r" ? "redSideShort" : "blackSideShort");
+    row.append(title);
+    for (const entry of draw) {
+      const card = castling.cards[entry.type];
+      const file = FILES.indexOf(entry[side][0]);
+      const badge = document.createElement("span");
+      badge.className = "castling-card-badge";
+      badge.title = t(card.rule);
+      badge.textContent = t("castlingCard", { file: side === "r" ? 9 - file : file + 1, name: t(card.name) });
+      row.append(badge);
+    }
+    results.append(row);
+  }
+  if (reveal && !document.documentElement.classList.contains("reduce-motion")) {
+    results.animate([{ opacity: .3, transform: "translateY(7px)" }, { opacity: 1, transform: "translateY(0)" }],
+      { duration: 360, easing: "ease-out" });
+  }
+}
+
+function renderJieqi() {
+  const card = document.querySelector("#jieqi-card");
+  card.hidden = state.variant !== jieqi.variant;
+  if (card.hidden) return;
+  const counts = { r: 0, b: 0 };
+  for (const piece of state.board.flat()) if (piece?.covered) counts[piece.color] += 1;
+  document.querySelector("#jieqi-red-covered").textContent = counts.r;
+  document.querySelector("#jieqi-black-covered").textContent = counts.b;
+  const last = document.querySelector("#jieqi-last-reveal");
+  const note = jieqiRevealNote(state.jieqiLog.at(-1), state.history.length % 2 ? "r" : "b");
+  if (last.textContent !== note) last.textContent = note;
+  last.hidden = !note;
+}
+
 function render(nextState) {
   const previousState = state;
   state = nextState;
+  if (state.lobby) {
+    renderRemoteLobby();
+    return;
+  }
   if ((previousState?.playerColor || "r") !== (state.playerColor || "r")) {
     cancelBoardMotion();
     keyboardSquare = state.playerColor === "b" ? "e9" : "e0";
@@ -995,7 +1216,7 @@ function render(nextState) {
   const engineName = currentEngineName();
   document.querySelector('[data-i18n="matchEyebrow"]').textContent = isFriendRoom
     ? t(state.remote ? "remoteTitle" : "roomEyebrow") : t("matchEyebrow", { engine: engineName });
-  document.querySelector("#match-title").textContent = t(isFriendRoom ? "roomEyebrow" : "matchTitle");
+  document.querySelector("#match-title").textContent = t(variantTitle(state.variant) || (isFriendRoom ? "roomEyebrow" : "matchTitle"));
   document.querySelector('[data-screen="match"] [data-action="home"]').textContent = t(state.remote ? "remoteLeave" : "returnHome");
   document.querySelector("#top-player-name").textContent = isFriendRoom ? t(blackPlayer ? "friendAsRed" : "friendAsBlack") : engineName;
   document.querySelector("#bottom-player-name").textContent = isFriendRoom ? t(blackPlayer ? "youAsBlack" : "youAsRed") : t("guest");
@@ -1046,9 +1267,11 @@ function render(nextState) {
     : state.thinking ? t("engineThinking") : state.turn === (state.playerColor || "r") ? t("userTurn") : t("waitingEngine");
   turnPill.classList.toggle("active-turn", state.phase === "playing" && state.turn === (state.playerColor || "r") && !state.thinking && !state.connection);
   turnPill.classList.toggle("engine-thinking", state.phase === "playing" && state.thinking);
-  document.querySelector("#undo-button").hidden = isFriendRoom;
+  document.querySelector("#undo-button").hidden = isFriendRoom || state.variant === jieqi.variant;
   document.querySelector("#undo-button").disabled = isFriendRoom || state.phase !== "playing" || state.thinking || state.turn !== (state.playerColor || "r") || state.history.length < 2;
   document.querySelector("#retry-button").hidden = !state.engineFailure;
+  renderCastlingDraw();
+  renderJieqi();
   renderMoves(state.history);
   if (state.phase === "finished") {
     renderResult();
@@ -1056,6 +1279,10 @@ function render(nextState) {
   }
   renderTutorial();
   renderVariationUI();
+  if (state.remote && state.phase === "playing" && document.body.dataset.view === "remote-lobby") {
+    showScreen("match");
+    boardNode.focus();
+  }
 }
 
 function makeRoomInviteUrls(result) {
@@ -1099,17 +1326,27 @@ async function enterFriendRoom(result) {
   clearBoardSelection();
   roomInviteUrls = result.state.remote ? [] : makeRoomInviteUrls(result);
   render(result.state);
-  showScreen(result.state.phase === "finished" ? "result" : "match");
-  if (result.state.phase !== "finished") boardNode.focus();
+  showCurrentRoom();
+}
+
+function showCurrentRoom() {
+  if (state.lobby) {
+    showScreen("remote-lobby");
+    document.querySelector("#remote-lobby-title").focus({ preventScroll: true });
+  } else if (state.phase === "finished") showScreen("result");
+  else {
+    showScreen("match");
+    boardNode.focus();
+  }
 }
 
 function realPositionKey(position = state) {
   if (!position) return "";
-  return JSON.stringify([position.mode, position.remote, position.roomCode, position.playerColor, position.phase, position.turn, position.history, position.finalFen || position.board]);
+  return JSON.stringify([position.mode, position.variant, position.remote, position.roomCode, position.playerColor, position.phase, position.turn, position.history, position.finalFen || position.board]);
 }
 
 function canUseVariation(position = state) {
-  return Boolean(position?.phase === "playing" && !position.thinking && !tutorialActive
+  return Boolean(position?.phase === "playing" && position.variant !== jieqi.variant && !position.thinking && !tutorialActive
     && !position.connection && position.turn === (position.playerColor || "r"));
 }
 
@@ -1166,17 +1403,23 @@ function playNextBoardMove() {
 }
 
 function makeBoardMove(move, before, after, opponent = false, pattern = null) {
+  const from = move.slice(0, 2);
+  const rawTo = move.slice(2);
+  const castleRook = castlingRook(move, before);
+  const piece = pieceAt(before, from);
   return {
-    from: move.slice(0, 2), to: move.slice(2),
-    piece: before[9 - Number(move[1])]?.[FILES.indexOf(move[0])],
-    captured: before[9 - Number(move[3])]?.[FILES.indexOf(move[2])],
+    from, to: castleRook ? castlingKingSquare(move) : rawTo,
+    piece,
+    captured: castleRook ? null : pieceAt(before, rawTo),
+    rook: castleRook ? { from: rawTo, to: from, piece: castleRook } : null,
+    revealed: piece?.covered ? pieceAt(after, rawTo) : null,
     board: after, opponent, pattern,
   };
 }
 
 function queueRealBoardMoves(previous, next) {
   const continuous = previous && previous.mode === next.mode && previous.roomCode === next.roomCode
-    && previous.remote === next.remote
+    && previous.remote === next.remote && previous.variant === next.variant
     && (previous.playerColor || "r") === (next.playerColor || "r")
     && previous.engineId === next.engineId && previous.history.length <= next.history.length
     && previous.history.every((move, index) => move === next.history[index]);
@@ -1194,11 +1437,12 @@ function queueRealBoardMoves(previous, next) {
     return;
   }
   // ponytail: one visual queue; engine/network state stays authoritative and never waits for animation.
-  const game = previous.finalFen ? new window.NinePalaceXiangqi(previous.finalFen) : gameAtPly(previous.history, previous.history.length);
+  const game = previous.finalFen && !previous.jieqiLog ? positionFor(previous, previous.finalFen)
+    : gameAtPly(previous.history, previous.history.length, previous);
   const pending = [];
   for (const [index, move] of moves.entries()) {
     const before = game.board();
-    if (!game.move(move)) {
+    if (!playRecordedMove(game, move, next.jieqiLog?.[previous.history.length + index])) {
       cancelBoardMotion();
       return;
     }
@@ -1231,9 +1475,9 @@ function drawCurrentBoard() {
 function startVariation() {
   if (variation || submittingMove || boardMotion || !canUseVariation() || document.body.dataset.view !== "match") return;
   try {
-    const baseFen = state.finalFen || gameAtPly(state.history, state.history.length).fen();
-    const game = new window.NinePalaceXiangqi();
-    if (!game.load(baseFen) || game.turn() !== state.turn) throw new Error("Invalid practice position");
+    const baseFen = state.finalFen || gameAtPly(state.history, state.history.length, state).fen();
+    const game = positionFor(state, baseFen);
+    if (game.fen() !== baseFen || game.turn() !== state.turn) throw new Error("Invalid practice position");
     // One disposable line with undo/redo; no engine requests or saved-game writes.
     variation = { game, baseFen, baseKey: realPositionKey(), redo: [], keyboardSquare };
     clearBoardSelection();
@@ -1267,6 +1511,7 @@ function renderVariationUI() {
   const active = Boolean(variation);
   const moving = Boolean(boardMotion);
   const toggle = document.querySelector("#variation-toggle");
+  toggle.hidden = state.variant === jieqi.variant;
   toggle.textContent = t(active ? "variationExit" : "variationStart");
   toggle.title = t(active ? "variationExit" : canUseVariation() ? "variationHelp" : "variationUnavailable");
   toggle.setAttribute("aria-pressed", String(active));
@@ -1297,7 +1542,7 @@ function renderVariationUI() {
   document.querySelector("#variation-back").disabled = submittingMove || !moves.length;
   document.querySelector("#variation-forward").disabled = submittingMove || moving || !redo.length;
   document.querySelector("#variation-reset").disabled = submittingMove || (!moves.length && !redo.length);
-  const notationGame = new window.NinePalaceXiangqi(baseFen);
+  const notationGame = positionFor(state, baseFen);
   const commit = document.querySelector("#variation-commit");
   commit.disabled = submittingMove || moving || !moves.length;
   commit.textContent = moves.length ? t("variationPlayFirst", { move: moveNotation(moves[0], notationGame) }) : t("variationAdopt");
@@ -1387,7 +1632,7 @@ async function submitRealMove(move, practice = null) {
       boardNode.focus({ preventScroll: true });
     }
     clearBoardSelection();
-    keyboardSquare = move.slice(2);
+    keyboardSquare = castlingRook(move, state.board) ? castlingKingSquare(move) : move.slice(2);
     drawCurrentBoard();
     const result = await window.ninepalace.submitMove(move, window.npSettings.getPreferences().difficulty);
     if (result.ok && tutorialActive && tutorialStep === "move") {
@@ -1472,6 +1717,45 @@ boardNode.addEventListener("keydown", (event) => {
   }
 });
 
+async function startPracticeGame(variant = state?.variant ?? null) {
+  tutorialActive = false;
+  roomInviteUrls = [];
+  stopVariation(false);
+  cancelBoardMotion();
+  clearBoardSelection();
+  const preferences = window.npSettings.getPreferences();
+  keyboardSquare = preferences.playerColor === "b" ? "e9" : "e0";
+  const nextState = await window.ninepalace.startGame(preferences.engineId, preferences.playerColor, preferences.difficulty, variant);
+  render(nextState);
+  if (nextState.phase === "playing") {
+    showScreen("match");
+    boardNode.focus();
+  } else {
+    showScreen("home");
+    toast(window.npI18n.localizeStatus(nextState.status));
+  }
+}
+
+const practiceDialog = document.querySelector("#practice-dialog");
+const practiceForm = document.querySelector("#practice-form");
+const practiceStart = document.querySelector("#practice-start");
+const friendMenuDialog = document.querySelector("#friend-menu-dialog");
+const entertainmentDialog = document.querySelector("#entertainment-dialog");
+let practiceStarting = false;
+
+practiceForm.addEventListener("change", () => { practiceStart.disabled = !practiceForm.elements["practice-side"].value; });
+document.querySelector("#practice-close").addEventListener("click", () => practiceDialog.close());
+practiceForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const side = practiceForm.elements["practice-side"].value;
+  if (!practiceDialog.open || practiceStarting || !["r", "b"].includes(side)) return;
+  practiceStarting = true;
+  practiceDialog.close();
+  window.npSettings.setPlayerColor(side);
+  try { await startPracticeGame(practiceForm.elements["practice-variant"].value || null); }
+  finally { practiceStarting = false; }
+});
+
 document.querySelectorAll("[data-action]").forEach((button) => button.addEventListener("click", async () => {
   switch (button.dataset.action) {
     case "variation-toggle":
@@ -1491,45 +1775,60 @@ document.querySelectorAll("[data-action]").forEach((button) => button.addEventLi
       if (variation?.game.history().length) await submitRealMove(variation.game.history()[0], variation);
       break;
     case "start":
-      tutorialActive = false;
-      roomInviteUrls = [];
-      stopVariation(false);
-      cancelBoardMotion();
-      clearBoardSelection();
-      {
-        const preferences = window.npSettings.getPreferences();
-        keyboardSquare = preferences.playerColor === "b" ? "e9" : "e0";
-        const nextState = await window.ninepalace.startGame(preferences.engineId, preferences.playerColor, preferences.difficulty);
-        render(nextState);
-        if (nextState.phase === "playing") {
-          showScreen("match");
-          boardNode.focus();
-        } else {
-          showScreen("home");
-          toast(window.npI18n.localizeStatus(nextState.status));
-        }
-      }
+      await startPracticeGame();
+      break;
+    case "practice":
+      if (practiceStarting) break;
+      practiceForm.reset();
+      practiceStart.disabled = true;
+      practiceDialog.showModal();
+      practiceForm.querySelector('input[type="radio"]').focus();
+      break;
+    case "friend-menu":
+      friendMenuDialog.showModal();
+      break;
+    case "characters":
+      showScreen("characters");
+      document.querySelector("#characters-title").focus({ preventScroll: true });
       break;
     case "create-room":
+      friendMenuDialog.close();
       document.querySelector("#room-create-dialog").showModal();
       document.querySelector("#room-create-side").focus();
       break;
     case "join-room":
+      friendMenuDialog.close();
       document.querySelector("#room-dialog").showModal();
       document.querySelector("#room-code-input").focus();
       break;
     case "remote-room":
+      friendMenuDialog.close();
       openRemoteDialog();
       break;
-    case "home":
+    case "home": {
+      const previousScreen = document.body.dataset.view;
       tutorialActive = false;
       if (state?.remote) render(await window.ninepalace.leaveRoom());
       renderTutorial();
       showScreen("home");
+      if (previousScreen === "characters" || previousScreen === "account") {
+        document.querySelector(`.topbar [data-action="${previousScreen}"]`).focus({ preventScroll: true });
+      }
       break;
-    case "history":
-      renderHistory();
-      showScreen("history");
+    }
+    case "account":
+      renderAccount();
+      showScreen("account");
+      document.querySelector("#account-title").focus({ preventScroll: true });
+      break;
+    case "entertainment":
+      if (window.ninepalace.createRemoteRoom) entertainmentDialog.showModal();
+      else toast(t("castlingDesktop"));
+      break;
+    case "castling-room":
+    case "jieqi-room":
+      entertainmentDialog.close();
+      openRemoteDialog(button.dataset.action === "jieqi-room" ? jieqi.variant : castling.variant);
       break;
     case "review-current":
       openReplay(finishedRecord());
@@ -1635,7 +1934,6 @@ if (location.protocol === "file:") document.querySelector("#join-room-home").hid
 
 const remoteDialog = document.querySelector("#remote-room-dialog");
 const remoteCode = document.querySelector("#remote-room-code");
-const remoteSide = document.querySelector("#remote-room-side");
 const remoteCreate = document.querySelector("#remote-room-create");
 const remoteJoin = document.querySelector("#remote-room-join");
 const remoteStatus = document.querySelector("#remote-room-status");
@@ -1644,7 +1942,13 @@ if (window.ninepalace.createRemoteRoom) {
   document.querySelector("#remote-room-home").hidden = false;
 }
 
-function openRemoteDialog() {
+function openRemoteDialog(variant = null) {
+  const title = document.querySelector("#remote-room-title");
+  title.dataset.i18n = variantTitle(variant) || "remoteTitle";
+  title.textContent = t(title.dataset.i18n);
+  remoteDialog.dataset.variant = variant || "";
+  document.querySelector("#remote-castling-info").hidden = variant !== castling.variant;
+  document.querySelector("#remote-jieqi-info").hidden = variant !== jieqi.variant;
   remoteStatus.hidden = true;
   remoteDialog.showModal();
   remoteCode.focus();
@@ -1662,11 +1966,11 @@ async function requestRemoteRoom(hosting) {
     remoteCode.focus();
     return showRemoteStatus("remoteBadCode");
   }
-  const controls = [remoteCreate, remoteJoin, remoteCode, remoteSide];
+  const controls = [remoteCreate, remoteJoin, remoteCode];
   controls.forEach(control => { control.disabled = true; });
   showRemoteStatus(hosting ? "remoteStarting" : "remoteConnecting");
   try {
-    const result = await (hosting ? window.ninepalace.createRemoteRoom(remoteSide.value) : window.ninepalace.joinRemoteRoom(code));
+    const result = await (hosting ? window.ninepalace.createRemoteRoom(remoteDialog.dataset.variant || null) : window.ninepalace.joinRemoteRoom(code));
     if (!remoteDialog.open) {
       if (result.state) await window.ninepalace.leaveRoom();
       return;
@@ -1695,6 +1999,74 @@ remoteDialog.addEventListener("close", () => {
   if (remoteCreate.disabled) void window.ninepalace.cancelRemoteRoom();
 });
 
+const remoteSeats = [...document.querySelectorAll("[data-remote-seat]")];
+const remoteConfirm = document.querySelector("#remote-lobby-confirm");
+const remoteStart = document.querySelector("#remote-lobby-start");
+let remoteLobbyPending = false;
+
+function renderRemoteLobby() {
+  const { role, host, guest } = state.lobby;
+  const hosting = role === "host";
+  const self = hosting ? host : guest;
+  const peer = hosting ? guest : host;
+  const disabled = Boolean(state.connection || remoteLobbyPending);
+  const title = document.querySelector("#remote-lobby-title");
+  title.dataset.i18n = variantTitle(state.variant) || "remoteTitle";
+  title.textContent = t(title.dataset.i18n);
+  document.querySelector("#remote-lobby-code").textContent = state.roomCode;
+  for (const button of remoteSeats) {
+    const side = button.dataset.remoteSeat;
+    const yours = self.side === side;
+    const occupied = peer.side === side;
+    const status = yours ? t("seatYou") : occupied ? t("seatFriend") : t("seatEmpty");
+    const confirmed = (yours && self.confirmed) || (occupied && peer.confirmed);
+    button.querySelector("[data-seat-occupant]").textContent = confirmed ? `${status} · ${t("seatConfirmed")}` : status;
+    button.disabled = disabled || occupied;
+    button.dataset.occupied = String(occupied);
+    button.setAttribute("aria-pressed", String(yours));
+  }
+  remoteConfirm.textContent = t(self.confirmed ? "seatConfirmed" : "seatConfirm");
+  remoteConfirm.disabled = disabled || !self.side || self.confirmed;
+  remoteStart.hidden = !hosting;
+  remoteStart.disabled = disabled || !hosting || !self.confirmed || !peer.confirmed || !peer.online;
+
+  let status = self.side ? "remoteConfirmSeat" : "remoteChooseSeat";
+  if (state.connection === "closed") status = "remoteRoomClosed";
+  else if (state.connection === "reconnecting") status = "roomReconnecting";
+  else if (!peer.online && peer.side) status = "remotePeerOffline";
+  else if (!peer.online) status = "remoteWaiting";
+  else if (self.confirmed) status = peer.confirmed ? (hosting ? "remoteReadyStart" : "remoteWaitHost") : "remoteWaitConfirm";
+  document.querySelector("#remote-lobby-status").textContent = t(status);
+}
+
+async function changeRemoteLobby(action, side) {
+  if (!state?.lobby || state.connection || remoteLobbyPending) return;
+  const roomCode = state.roomCode;
+  remoteLobbyPending = true;
+  renderRemoteLobby();
+  try {
+    const result = await window.ninepalace.remoteLobbyAction(action, side);
+    if (!result.ok && state?.lobby && state.roomCode === roomCode) toast(t(result.error || "remoteUnavailable"));
+  } catch {
+    if (state?.lobby && state.roomCode === roomCode) toast(t("remoteUnavailable"));
+  } finally {
+    remoteLobbyPending = false;
+    if (state?.lobby) renderRemoteLobby();
+  }
+}
+
+for (const seat of remoteSeats) {
+  seat.addEventListener("click", () => {
+    const side = seat.dataset.remoteSeat;
+    void changeRemoteLobby("select", state?.playerColor === side ? null : side);
+  });
+}
+remoteConfirm.addEventListener("click", () => void changeRemoteLobby("confirm", state?.playerColor));
+remoteStart.addEventListener("click", () => void changeRemoteLobby("start"));
+document.querySelector("#remote-lobby-copy").addEventListener("click", () => {
+  if (state?.lobby) void copyText(state.roomCode, "remoteCodeCopied");
+});
+
 document.querySelector("#history-list").addEventListener("click", (event) => {
   const entry = event.target.closest("[data-replay-id]");
   if (!entry) return;
@@ -1702,7 +2074,7 @@ document.querySelector("#history-list").addEventListener("click", (event) => {
 });
 
 document.querySelector("#review-start").addEventListener("click", async () => {
-  if (!currentReplay || analysisRunningId || !currentReplay.moves.length) return;
+  if (!currentReplay || currentReplay.draw || currentReplay.variant === jieqi.variant || analysisRunningId || !currentReplay.moves.length) return;
   const recordId = currentReplay.id;
   const moves = [...currentReplay.moves];
   analysisRunningId = recordId;
@@ -1775,14 +2147,14 @@ window.addEventListener("ninepalace:motion-change", () => {
 });
 window.ninepalace.getState().then((nextState) => {
   render(nextState);
-  if (nextState.mode === "friend") showScreen(nextState.phase === "finished" ? "result" : "match");
+  if (nextState.mode === "friend") showCurrentRoom();
 });
 window.addEventListener("ninepalace:language-change", () => {
   const activeScreen = document.querySelector("[data-screen].active")?.dataset.screen;
   if (state) render(state);
-  if (activeScreen === "history") {
-    renderHistory();
-    showScreen("history");
+  if (activeScreen === "account") {
+    renderAccount();
+    showScreen("account");
   } else if (activeScreen === "replay") {
     renderReplay();
     showScreen("replay");

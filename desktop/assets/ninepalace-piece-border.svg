@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <defs>
+    <path id="key" d="M50 4 A46 46 0 0 1 57.988 4.699 L57.467 7.653
+      A43 43 0 0 0 53 7.105 L52.790 10.097 A40 40 0 0 1 59.677 11.188
+      L61.128 5.366 A46 46 0 0 1 64.215 6.251"/>
+    <g id="quarter">
+      <use href="#key"/>
+      <use href="#key" transform="rotate(18 50 50)"/>
+      <use href="#key" transform="rotate(36 50 50)"/>
+      <use href="#key" transform="rotate(54 50 50)"/>
+      <use href="#key" transform="rotate(72 50 50)"/>
+    </g>
+  </defs>
+  <g fill="none" stroke="#4f7898" stroke-width="0.84" stroke-linejoin="round">
+    <circle cx="50" cy="50" r="49" stroke-width="0.65"/>
+    <circle cx="50" cy="50" r="37.5" stroke-width="0.65"/>
+    <use href="#quarter"/>
+    <use href="#quarter" transform="rotate(90 50 50)"/>
+    <use href="#quarter" transform="rotate(180 50 50)"/>
+    <use href="#quarter" transform="rotate(270 50 50)"/>
+  </g>
+</svg>

@@ -1,4 +1,4 @@
-const CACHE_NAME = "ninepalace-shell-v28";
+const CACHE_NAME = "ninepalace-shell-v54";
 const APP_SHELL = [
   "/",
   "/index.html",
@@ -13,14 +13,18 @@ const APP_SHELL = [
   "/character-select.js",
   "/settings.js",
   "/chinese-notation.js",
+  "/palace-castling.js",
+  "/jieqi.js",
   "/pwa-register.js",
   "/manifest.webmanifest",
   "/icon-192.svg",
   "/icon-512.svg",
+  "/assets/ninepalace-lobby-campus.png",
+  "/assets/ninepalace-piece-border.svg",
   "/assets/ninepalace-red-rook-girl.png",
-  "/assets/ninepalace-red-horse-girl.png",
+  "/assets/ninepalace-red-horse-white-tights.png",
   "/assets/ninepalace-black-rook-loli.png",
-  "/assets/ninepalace-black-horse-loli.png",
+  "/assets/ninepalace-black-horse-adult.png",
   "/assets/ninepalace-hand-red-rook.png",
   "/assets/ninepalace-hand-red-horse.png",
   "/assets/ninepalace-hand-black-rook.png",
@@ -45,5 +49,5 @@ self.addEventListener("fetch", (event) => {
   const url = new URL(event.request.url);
   if (url.origin !== self.location.origin || url.pathname.startsWith("/api/")) return;
   if (event.request.method !== "GET") return;
-  event.respondWith(caches.match(event.request).then((cached) => cached || fetch(event.request)));
+  event.respondWith(caches.match(event.request).then(cached => cached || fetch(event.request)));
 });

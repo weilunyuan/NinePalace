@@ -26,15 +26,19 @@ const STATIC_FILES = new Map([
   ["/character-select.js", "character-select.js"],
   ["/settings.js", "settings.js"],
   ["/chinese-notation.js", "chinese-notation.js"],
+  ["/palace-castling.js", "palace-castling.js"],
+  ["/jieqi.js", "jieqi.js"],
   ["/pwa-register.js", "pwa-register.js"],
   ["/manifest.webmanifest", "manifest.webmanifest"],
   ["/service-worker.js", "service-worker.js"],
   ["/icon-192.svg", "icon-192.svg"],
   ["/icon-512.svg", "icon-512.svg"],
+  ["/assets/ninepalace-lobby-campus.png", "assets/ninepalace-lobby-campus.png"],
+  ["/assets/ninepalace-piece-border.svg", "assets/ninepalace-piece-border.svg"],
   ["/assets/ninepalace-red-rook-girl.png", "assets/ninepalace-red-rook-girl.png"],
-  ["/assets/ninepalace-red-horse-girl.png", "assets/ninepalace-red-horse-girl.png"],
+  ["/assets/ninepalace-red-horse-white-tights.png", "assets/ninepalace-red-horse-white-tights.png"],
   ["/assets/ninepalace-black-rook-loli.png", "assets/ninepalace-black-rook-loli.png"],
-  ["/assets/ninepalace-black-horse-loli.png", "assets/ninepalace-black-horse-loli.png"],
+  ["/assets/ninepalace-black-horse-adult.png", "assets/ninepalace-black-horse-adult.png"],
   ["/assets/ninepalace-hand-red-rook.png", "assets/ninepalace-hand-red-rook.png"],
   ["/assets/ninepalace-hand-red-horse.png", "assets/ninepalace-hand-red-horse.png"],
   ["/assets/ninepalace-hand-black-rook.png", "assets/ninepalace-hand-black-rook.png"],
@@ -224,7 +228,7 @@ function createWebServer({ api, friendRooms = null, friendRoomsOnly = false, des
         const body = await readJson(request);
         let value;
         switch (url.pathname) {
-          case "/api/start": value = await api.startGame(body.engineId, body.playerColor, body.difficulty); break;
+          case "/api/start": value = await api.startGame(body.engineId, body.playerColor, body.difficulty, body.variant); break;
           case "/api/move": value = await api.submitMove(body.move, body.difficulty); break;
           case "/api/undo": value = await api.undo(); break;
           case "/api/resign": value = await api.resign(); break;

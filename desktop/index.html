@@ -2,7 +2,7 @@
 <html lang="zh-CN">
 <head>
   <meta charset="utf-8">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'none'">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; connect-src 'self' blob:; object-src 'none'; base-uri 'none'">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#dff4ff">
   <meta name="description" content="选择 Pikafish 或 Fairy-Stockfish 练习中国象棋，也可邀请同一局域网的朋友对弈。">
@@ -20,75 +20,137 @@
         <span class="brand-mark" aria-hidden="true">棋</span>
         <div><div class="brand-name">NINEPALACE</div><div class="brand-sub">九宫 · 象棋</div></div>
       </div>
-      <div class="topbar-right"><span class="guest" data-i18n="guest">访客玩家</span><span id="experience-badge" class="local-badge" data-i18n="localBadge">本地练习</span><button id="language-toggle" class="language-toggle" type="button">EN</button><button id="settings-open" class="language-toggle settings-open" type="button" data-i18n-aria="settingsOpen" aria-label="打开设置" title="打开设置">⚙</button></div>
+      <button id="lobby-account-open" class="lobby-piece lobby-account-open" type="button" data-action="account" data-i18n-aria="accountTitle" aria-label="账户" aria-controls="account-screen">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true">
+          <circle cx="12" cy="7.8" r="4" />
+          <path d="M4.5 20.5v-1a7.5 7.5 0 0 1 15 0v1" />
+        </svg>
+      </button>
+      <div class="topbar-right">
+        <span id="experience-badge" class="local-badge" data-i18n="localBadge">本地练习</span>
+        <button id="lobby-character-open" class="lobby-piece lobby-character-open" type="button" data-action="characters">
+          <span class="lobby-piece-label" data-i18n="characters">角色</span>
+        </button>
+        <button id="settings-open" class="language-toggle settings-open lobby-piece lobby-settings-piece" type="button" data-i18n-aria="settingsOpen" aria-label="打开设置" aria-haspopup="dialog" aria-controls="settings-dialog">
+          <span class="settings-gear" aria-hidden="true">⚙</span>
+          <span class="lobby-piece-label" data-i18n="settingsButton">设置</span>
+        </button>
+      </div>
     </header>
 
     <main>
       <section data-screen="home" class="lobby-screen active" data-i18n-aria="lobbyAria" aria-label="游戏大厅">
-        <div class="lobby-scenery" aria-hidden="true"><div class="lobby-palace"></div><span class="lobby-piece"></span></div>
         <div class="lobby-character-stage">
-          <img id="lobby-character" class="lobby-character-art" src="./assets/ninepalace-red-rook-girl.png" alt="" aria-hidden="true" draggable="false">
-          <div class="lobby-nameplate" aria-live="polite">
-            <span id="lobby-character-role" data-i18n="redRookRole">红方 · 車</span>
-            <strong id="lobby-character-name" data-i18n="redRookName">绯音</strong>
+          <div class="lobby-actor" aria-hidden="true">
+            <div class="lobby-ground-shadow"></div>
+            <div class="lobby-foot-shadow"></div>
+            <div class="lobby-foot-shadow"></div>
+            <img id="lobby-character" class="lobby-character-art" src="./assets/ninepalace-red-rook-girl.png" alt="" draggable="false">
           </div>
-          <div class="lobby-dialogue"><span class="lobby-dialogue-mark" aria-hidden="true">“</span><p id="lobby-character-quote" data-i18n="redRookQuote">“红方車阵在此，我来替你稳住主线。”</p></div>
         </div>
 
-        <div class="lobby-menu">
-          <div class="lobby-menu-heading"><h1 data-i18n="lobbyPlay">对弈</h1><span aria-hidden="true">PLAY</span></div>
-          <label class="lobby-side" for="player-side">
-            <span data-i18n="playerSideTitle">执棋方</span>
-            <select id="player-side" name="playerColor">
-              <option value="r" data-i18n="playRed">红方 · 先手</option>
-              <option value="b" data-i18n="playBlack">黑方 · 后手</option>
-            </select>
-          </label>
-          <button class="lobby-start" type="button" data-action="start">
-            <span class="lobby-start-emblem" aria-hidden="true">帥</span>
-            <span class="lobby-start-copy"><small data-i18n="lobbySolo">人机练习</small><strong data-i18n="startGame">开始对局</strong></span>
-            <svg class="lobby-start-arrow" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12h15M13 5l7 7-7 7"/></svg>
+        <nav class="lobby-menu" data-i18n-aria="lobbyMenu" aria-label="对局菜单">
+          <button class="lobby-piece" type="button" data-action="practice" aria-haspopup="dialog">
+            <span class="lobby-piece-label" data-i18n="lobbySolo">人机对局</span>
           </button>
+          <button class="lobby-piece" type="button" data-action="friend-menu" aria-haspopup="dialog">
+            <span class="lobby-piece-label" data-i18n="lobbyFriends">好友对局</span>
+          </button>
+          <button class="lobby-piece" type="button" data-action="tutorial">
+            <span class="lobby-piece-label" data-i18n="tutorial">新手教程</span>
+          </button>
+          <button class="lobby-piece" type="button" data-action="entertainment" aria-haspopup="dialog">
+            <span class="lobby-piece-label" data-i18n="entertainmentMode">娱乐模式</span>
+          </button>
+          <button id="pwa-install-button" class="lobby-piece lobby-install" type="button" data-i18n-aria="install" aria-label="安装 NinePalace" hidden>
+            <span class="lobby-piece-label" data-i18n="installButton">安装</span>
+          </button>
+        </nav>
+        <p id="lobby-character-quote" class="lobby-dialogue" data-i18n="redRookQuote" aria-live="polite">“红方車阵在此，我来替你稳住主线。”</p>
+      </section>
 
-          <div class="lobby-friends">
-            <div class="lobby-friends-heading"><span class="lobby-friends-emblem" aria-hidden="true"><i>車</i><i>馬</i></span><h2 data-i18n="lobbyFriends">好友对弈</h2></div>
-            <div class="lobby-friend-actions">
-              <button type="button" data-action="create-room"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg><span data-i18n="createRoom">创建好友房</span></button>
-              <button id="join-room-home" type="button" data-action="join-room"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M13 4h6v16h-6M4 12h10M10 8l4 4-4 4"/></svg><span data-i18n="joinRoom">加入好友房</span></button>
-              <button id="remote-room-home" type="button" data-action="remote-room" data-i18n="remoteTitle" aria-haspopup="dialog" hidden>远程联机</button>
-            </div>
-          </div>
-
-          <nav class="lobby-tools" data-i18n-aria="lobbyTools" aria-label="教学与棋谱">
-            <button type="button" data-action="tutorial"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 6c-3-2-6-2-9-1v14c3-1 6-1 9 1 3-2 6-2 9-1V5c-3-1-6-1-9 1v14M6 9h3M15 9h3M6 13h3M15 13h3"/></svg><span data-i18n="tutorial">新手教学</span></button>
-            <button type="button" data-action="history"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5v5h5M4 10a8 8 0 1 1 1 7M12 7v5l3 2"/></svg><span data-i18n="historyButton">最近棋谱</span></button>
-          </nav>
-          <button id="pwa-install-button" class="lobby-install" type="button" data-i18n="install" hidden>安装 NinePalace</button>
+      <section data-screen="characters" class="character-screen" aria-labelledby="characters-title">
+        <div class="character-screen-heading">
+          <h1 id="characters-title" tabindex="-1" data-i18n="characters">角色</h1>
+          <button class="button secondary compact" type="button" data-action="home" data-i18n="returnHome">← 返回大厅</button>
         </div>
+        <div class="lobby-character-options" role="group" data-i18n-aria="characterPickerAria" aria-label="选择你的棋友">
+          <button class="lobby-character-choice" type="button" data-character-id="red-rook" data-i18n-aria="chooseRedRook" aria-label="选择红方車棋友绯音" aria-pressed="true"><span class="lobby-portrait"><img src="./assets/ninepalace-red-rook-girl.png" alt="" draggable="false"></span><span class="lobby-choice-copy"><small data-i18n="redSideShort">红方</small><strong data-i18n="redRookName">绯音</strong></span><span class="lobby-choice-piece team-red" aria-hidden="true">車</span></button>
+          <button class="lobby-character-choice" type="button" data-character-id="red-horse" data-i18n-aria="chooseRedHorse" aria-label="选择红方馬棋友朱羽" aria-pressed="false"><span class="lobby-portrait"><img src="./assets/ninepalace-red-horse-white-tights.png" alt="" draggable="false"></span><span class="lobby-choice-copy"><small data-i18n="redSideShort">红方</small><strong data-i18n="redHorseName">朱羽</strong></span><span class="lobby-choice-piece team-red" aria-hidden="true">馬</span></button>
+          <button class="lobby-character-choice" type="button" data-character-id="black-rook" data-i18n-aria="chooseBlackRook" aria-label="选择黑方車棋友墨铃" aria-pressed="false"><span class="lobby-portrait"><img src="./assets/ninepalace-black-rook-loli.png" alt="" draggable="false"></span><span class="lobby-choice-copy"><small data-i18n="blackSideShort">黑方</small><strong data-i18n="blackRookName">墨铃</strong></span><span class="lobby-choice-piece team-black" aria-hidden="true">車</span></button>
+          <button class="lobby-character-choice" type="button" data-character-id="black-horse" data-i18n-aria="chooseBlackHorse" aria-label="选择黑方馬棋友玄芽" aria-pressed="false"><span class="lobby-portrait"><img src="./assets/ninepalace-black-horse-adult.png" alt="" draggable="false"></span><span class="lobby-choice-copy"><small data-i18n="blackSideShort">黑方</small><strong data-i18n="blackHorseName">玄芽</strong></span><span class="lobby-choice-piece team-black" aria-hidden="true">馬</span></button>
+        </div>
+      </section>
 
-        <div class="lobby-roster" role="group" data-i18n-aria="characterPickerAria" aria-label="选择你的棋友">
-          <div class="lobby-roster-heading"><span data-i18n="characterPickerLabel">同行棋友</span><span aria-hidden="true">COMPANIONS</span></div>
-          <div class="lobby-character-options">
-            <button class="lobby-character-choice" type="button" data-character-id="red-rook" data-i18n-aria="chooseRedRook" aria-label="选择红方車棋友绯音" aria-pressed="true"><span class="lobby-portrait"><img src="./assets/ninepalace-red-rook-girl.png" alt="" draggable="false"></span><span class="lobby-choice-copy"><small data-i18n="redSideShort">红方</small><strong data-i18n="redRookName">绯音</strong></span><span class="lobby-choice-piece team-red" aria-hidden="true">車</span></button>
-            <button class="lobby-character-choice" type="button" data-character-id="red-horse" data-i18n-aria="chooseRedHorse" aria-label="选择红方馬棋友朱羽" aria-pressed="false"><span class="lobby-portrait"><img src="./assets/ninepalace-red-horse-girl.png" alt="" draggable="false"></span><span class="lobby-choice-copy"><small data-i18n="redSideShort">红方</small><strong data-i18n="redHorseName">朱羽</strong></span><span class="lobby-choice-piece team-red" aria-hidden="true">馬</span></button>
-            <button class="lobby-character-choice" type="button" data-character-id="black-rook" data-i18n-aria="chooseBlackRook" aria-label="选择黑方車棋友墨铃" aria-pressed="false"><span class="lobby-portrait"><img src="./assets/ninepalace-black-rook-loli.png" alt="" draggable="false"></span><span class="lobby-choice-copy"><small data-i18n="blackSideShort">黑方</small><strong data-i18n="blackRookName">墨铃</strong></span><span class="lobby-choice-piece team-black" aria-hidden="true">車</span></button>
-            <button class="lobby-character-choice" type="button" data-character-id="black-horse" data-i18n-aria="chooseBlackHorse" aria-label="选择黑方馬棋友玄芽" aria-pressed="false"><span class="lobby-portrait"><img src="./assets/ninepalace-black-horse-loli.png" alt="" draggable="false"></span><span class="lobby-choice-copy"><small data-i18n="blackSideShort">黑方</small><strong data-i18n="blackHorseName">玄芽</strong></span><span class="lobby-choice-piece team-black" aria-hidden="true">馬</span></button>
+      <section data-screen="remote-lobby" class="remote-lobby-screen" aria-labelledby="remote-lobby-title">
+        <div class="remote-lobby-card">
+          <div class="settings-heading">
+            <h1 id="remote-lobby-title" tabindex="-1" data-i18n="remoteTitle">远程联机</h1>
+            <button class="button secondary compact" type="button" data-action="home" data-i18n="remoteLeave">← 离开房间</button>
+          </div>
+          <div class="remote-lobby-invite">
+            <p class="room-code-label"><span data-i18n="remoteFiveDigitCode">五位房间号</span> <strong id="remote-lobby-code"></strong></p>
+            <button id="remote-lobby-copy" class="button secondary small" type="button" data-i18n="remoteCopyCode">复制房间号</button>
+          </div>
+          <div class="seat-list" role="group" data-i18n-aria="remoteChooseSeat" aria-label="选择席位">
+            <button class="seat-option" type="button" data-remote-seat="r" aria-pressed="false">
+              <span class="seat-piece" data-side="r" aria-hidden="true">帥</span>
+              <strong data-i18n="playRed">红方 · 先手</strong><span class="seat-occupant" data-seat-occupant></span>
+            </button>
+            <button class="seat-option" type="button" data-remote-seat="b" aria-pressed="false">
+              <span class="seat-piece" data-side="b" aria-hidden="true">將</span>
+              <strong data-i18n="playBlack">黑方 · 后手</strong><span class="seat-occupant" data-seat-occupant></span>
+            </button>
+          </div>
+          <p id="remote-lobby-status" class="settings-note" role="status"></p>
+          <div class="remote-lobby-actions">
+            <button id="remote-lobby-confirm" class="button secondary" type="button" data-i18n="seatConfirm" disabled>确定</button>
+            <button id="remote-lobby-start" class="button primary" type="button" data-i18n="beginMatch" disabled>开始</button>
           </div>
         </div>
       </section>
 
-      <section data-screen="history" class="history-screen" aria-labelledby="history-title">
-        <div class="match-heading">
-          <div><div class="eyebrow" data-i18n="historyEyebrow">Local records</div><h1 id="history-title" data-i18n="historyTitle">最近棋谱</h1></div>
-          <button class="button secondary compact" data-action="home" data-i18n="returnHome">← 返回首页</button>
+      <section id="account-screen" data-screen="account" class="account-screen" aria-labelledby="account-title">
+        <div class="account-heading">
+          <div>
+            <h1 id="account-title" tabindex="-1" data-i18n="accountTitle">账户</h1>
+            <p data-i18n="guest">访客玩家</p>
+          </div>
+          <button class="button secondary compact" type="button" data-action="home" data-i18n="returnHome">← 返回大厅</button>
         </div>
-        <div id="history-list" class="history-list" aria-live="polite"></div>
+        <div class="account-layout">
+          <section class="account-panel" aria-labelledby="account-statistics-title">
+            <h2 id="account-statistics-title" data-i18n="accountStatistics">对局统计</h2>
+            <p class="account-caption" data-i18n="accountScope">统计本机已记录的对局</p>
+            <dl class="account-metrics">
+              <div class="account-win-rate"><dt data-i18n="accountWinRate">胜率</dt><dd id="account-win-rate">—</dd></div>
+              <div><dt data-i18n="accountTotal">总局数</dt><dd id="account-total">0</dd></div>
+              <div><dt data-i18n="accountWins">胜局</dt><dd id="account-wins">0</dd></div>
+              <div><dt data-i18n="accountDraws">和局</dt><dd id="account-draws">0</dd></div>
+              <div><dt data-i18n="accountLosses">负局</dt><dd id="account-losses">0</dd></div>
+            </dl>
+            <h3 id="account-mates-title" data-i18n="accountMates">杀法统计</h3>
+            <p id="account-mates-empty" class="account-caption" data-i18n="accountMatesEmpty">有将死的对局后，这里会按杀法统计。</p>
+            <table id="account-mates" aria-labelledby="account-mates-title" hidden>
+              <thead><tr>
+                <th scope="col" data-i18n="accountMate">杀法</th>
+                <th scope="col" data-i18n="accountMyMates">我方达成</th>
+                <th scope="col" data-i18n="accountOpponentMates">对手达成</th>
+              </tr></thead>
+              <tbody id="account-mates-rows"></tbody>
+            </table>
+          </section>
+          <section class="account-panel account-records" aria-labelledby="history-title">
+            <h2 id="history-title" data-i18n="historyTitle">最近棋谱</h2>
+            <div id="history-list" class="history-list" aria-live="polite"></div>
+          </section>
+        </div>
       </section>
 
       <section data-screen="replay" class="replay-screen" aria-labelledby="replay-title">
         <div class="match-heading">
           <div><div class="eyebrow" data-i18n="replayEyebrow">Review · Local record</div><h1 id="replay-title" data-i18n="replayTitle">棋谱回放</h1></div>
-          <button class="button secondary compact" data-action="history" data-i18n="backToHistory">← 返回棋谱</button>
+          <button class="button secondary compact" type="button" data-action="account" data-i18n="backToAccount">← 返回账户</button>
         </div>
         <div class="replay-layout">
           <div class="table-card replay-board-card">
@@ -132,6 +194,20 @@
               <div class="player"><div id="top-avatar" class="avatar engine-avatar" aria-hidden="true">將</div><div><div id="top-player-name" class="player-name">Pikafish</div><div id="top-player-meta" class="player-meta" data-i18n="blackSide">黑方</div></div></div>
               <div class="player"><div id="bottom-avatar" class="avatar" aria-hidden="true">帥</div><div><div id="bottom-player-name" class="player-name" data-i18n="guest">访客玩家</div><div id="bottom-player-meta" class="player-meta" data-i18n="redSide">红方</div></div></div>
               <div id="turn-pill" class="clock active-turn">你的回合</div>
+            </section>
+            <section id="castling-draw-card" class="side-card castling-draw-card" aria-labelledby="castling-draw-title" hidden>
+              <h2 id="castling-draw-title" data-i18n="castlingDrawTitle">开局抽签</h2>
+              <div id="castling-draw-results" aria-live="polite"></div>
+              <p class="castling-guide" data-i18n="castlingGuide">选中将帅，再点亮起的角车即可短易位。</p>
+            </section>
+            <section id="jieqi-card" class="side-card jieqi-card" aria-labelledby="jieqi-card-title" hidden>
+              <h2 id="jieqi-card-title" data-i18n="jieqiCovered">暗子</h2>
+              <dl class="jieqi-counts">
+                <div><dt data-i18n="redSideShort">红方</dt><dd id="jieqi-red-covered">15</dd></div>
+                <div><dt data-i18n="blackSideShort">黑方</dt><dd id="jieqi-black-covered">15</dd></div>
+              </dl>
+              <p data-i18n="jieqiFirstMove">暗子按原位走第一步，落子后翻开。</p>
+              <p id="jieqi-last-reveal" aria-live="polite" hidden></p>
             </section>
             <section id="companion-card" class="side-card companion-card" data-i18n-aria="redRookAria" aria-label="红方車棋友绯音">
               <span class="match-companion-art"><img id="companion-portrait" class="companion-portrait" src="./assets/ninepalace-red-rook-girl.png" alt="" aria-hidden="true"></span>
@@ -218,9 +294,20 @@
     <dialog id="settings-dialog" class="settings-dialog" aria-labelledby="settings-title">
       <form method="dialog">
         <div class="settings-heading">
-          <div><div class="eyebrow" data-i18n="settingsEyebrow">Preferences</div><h2 id="settings-title" data-i18n="settingsTitle">偏好设置</h2></div>
+          <h2 id="settings-title" data-i18n="settingsTitle">偏好设置</h2>
           <button class="button secondary small" type="submit" data-i18n-aria="closeSettings" aria-label="关闭设置">×</button>
         </div>
+        <div class="settings-row">
+          <strong data-i18n="playerIdentity">玩家身份</strong>
+          <span id="settings-player" data-i18n="guest">访客玩家</span>
+        </div>
+        <label class="settings-row" for="language-setting">
+          <strong data-i18n="languageTitle">界面语言</strong>
+          <select id="language-setting" name="language">
+            <option value="zh" lang="zh-CN">简体中文</option>
+            <option value="en" lang="en">English</option>
+          </select>
+        </label>
         <label class="settings-row" for="difficulty-setting">
           <span><strong data-i18n="difficultyTitle">人机难度</strong><small data-i18n="difficultyHelp">先从入门试试；可随时调整。</small></span>
           <select id="difficulty-setting" name="difficulty">
@@ -250,6 +337,49 @@
           <input id="sound-toggle" type="checkbox">
         </label>
         <p class="settings-note" data-i18n="settingsSaved">这些偏好保存在本机。</p>
+      </form>
+    </dialog>
+    <dialog id="practice-dialog" class="settings-dialog" aria-labelledby="practice-title">
+      <form id="practice-form">
+        <div class="settings-heading">
+          <h2 id="practice-title" data-i18n="lobbySolo">人机对局</h2>
+          <button class="button secondary small" type="button" id="practice-close" data-i18n-aria="closeSettings" aria-label="关闭">×</button>
+        </div>
+        <label class="settings-row" for="practice-variant">
+          <strong data-i18n="practiceVariant">玩法</strong>
+          <select id="practice-variant" name="practice-variant">
+            <option value="" data-i18n="standardVariant">标准象棋</option>
+            <option value="jieqi-v1" data-i18n="jieqiTitle">揭棋</option>
+            <option value="palace-castling-v2" data-i18n="castlingTitle">王车易位</option>
+          </select>
+        </label>
+        <fieldset class="seat-list practice-seats">
+          <legend class="visually-hidden" data-i18n="playerSideTitle">执棋方</legend>
+          <label class="seat-option"><input type="radio" name="practice-side" value="r" required><span class="seat-piece" data-side="r" aria-hidden="true">帥</span><strong data-i18n="playRed">红方 · 先手</strong></label>
+          <label class="seat-option"><input type="radio" name="practice-side" value="b" required><span class="seat-piece" data-side="b" aria-hidden="true">將</span><strong data-i18n="playBlack">黑方 · 后手</strong></label>
+        </fieldset>
+        <button class="button primary" id="practice-start" type="submit" data-i18n="beginMatch" disabled>开始</button>
+      </form>
+    </dialog>
+    <dialog id="entertainment-dialog" class="settings-dialog" aria-labelledby="entertainment-title">
+      <form method="dialog">
+        <div class="settings-heading">
+          <h2 id="entertainment-title" data-i18n="entertainmentMode">娱乐模式</h2>
+          <button class="button secondary small" type="submit" data-i18n-aria="closeRoomDialog" aria-label="关闭房间窗口">×</button>
+        </div>
+        <button class="button secondary entertainment-option" type="button" data-action="castling-room" data-i18n="castlingTitle" aria-haspopup="dialog">王车易位</button>
+        <button class="button secondary entertainment-option" type="button" data-action="jieqi-room" data-i18n="jieqiTitle" aria-haspopup="dialog">揭棋</button>
+      </form>
+    </dialog>
+    <dialog id="friend-menu-dialog" class="settings-dialog" aria-labelledby="friend-menu-title">
+      <form method="dialog">
+        <div class="settings-heading">
+          <h2 id="friend-menu-title" data-i18n="lobbyFriends">好友对局</h2>
+          <button class="button secondary small" type="submit" data-i18n-aria="closeRoomDialog" aria-label="关闭房间窗口">×</button>
+        </div>
+        <button id="remote-room-home" class="button primary" type="button" data-action="remote-room" data-i18n="remoteTitle" aria-haspopup="dialog" hidden>远程联机</button>
+        <button class="button secondary" type="button" data-action="create-room" data-i18n="createLanRoom" aria-haspopup="dialog">创建局域网房间</button>
+        <button id="join-room-home" class="button secondary" type="button" data-action="join-room" data-i18n="joinLanRoom" aria-haspopup="dialog">加入局域网房间</button>
       </form>
     </dialog>
     <dialog id="room-create-dialog" class="settings-dialog" aria-labelledby="room-create-title" aria-describedby="room-create-help">
@@ -289,16 +419,25 @@
           <h2 id="remote-room-title" data-i18n="remoteTitle">远程联机</h2>
           <button id="remote-room-close" class="button secondary small" type="button" data-i18n-aria="closeRoomDialog" aria-label="关闭房间窗口">×</button>
         </div>
-        <div class="remote-room-row">
-          <label class="room-code-entry" for="remote-room-side">
-            <span data-i18n="playerSideTitle">执棋方</span>
-            <select id="remote-room-side">
-              <option value="r" data-i18n="playRed">红方 · 先手</option>
-              <option value="b" data-i18n="playBlack">黑方 · 后手</option>
-            </select>
-          </label>
-          <button id="remote-room-create" class="button primary" type="button" data-i18n="remoteCreate">开房</button>
+        <div id="remote-castling-info" class="remote-mode-info" hidden>
+          <p data-i18n="castlingIntro">双方选边并确定后，开局各抽两枚变身棋子。</p>
+          <ul>
+            <li data-i18n="castlingHorseRule">跃马免蹩马腿。</li>
+            <li data-i18n="castlingElephantRule">斜象沿斜线走，可以过河，遇子挡路。</li>
+            <li data-i18n="castlingGuardRule">护卫向八方走一格，可以出九宫。</li>
+            <li data-i18n="castlingQueenRule">短后直走或斜走最多三格，遇子挡路，吃子无需炮架。</li>
+            <li data-i18n="castlingKingRule">每方可短易位一次。将帅和参与的车都须未动过，两子之间清空，将帅的起点和落点都须安全。</li>
+          </ul>
         </div>
+        <div id="remote-jieqi-info" class="remote-mode-info" hidden>
+          <p data-i18n="jieqiIntro">将帅明置，其余棋子各自洗牌盖放。</p>
+          <ul>
+            <li data-i18n="jieqiFirstMove">暗子按原位走第一步，落子后翻开。</li>
+            <li data-i18n="jieqiOpenRule">翻开后照真实棋子走，明相能过河，明士能出九宫。</li>
+            <li data-i18n="jieqiCaptureRule">吃掉暗子时，只有吃子的一方能看到它是什么。</li>
+          </ul>
+        </div>
+        <button id="remote-room-create" class="button primary" type="button" data-i18n="remoteCreate">开房</button>
         <div class="remote-room-row">
           <label class="room-code-entry" for="remote-room-code">
             <span data-i18n="remoteFiveDigitCode">五位房间号</span>
@@ -315,6 +454,8 @@
   <script src="./browser-bootstrap.js"></script>
   <script src="../vendor/xiangqi-js/xiangqi.js"></script>
   <script src="./browser-expose.js"></script>
+  <script src="./palace-castling.js"></script>
+  <script src="./jieqi.js"></script>
   <script src="./browser-client.js"></script>
   <script src="./i18n.js"></script>
   <script src="./character-select.js"></script>

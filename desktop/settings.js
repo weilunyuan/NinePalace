@@ -6,7 +6,6 @@
   const openButton = document.querySelector("#settings-open");
   const engineSelect = document.querySelector("#engine-setting");
   const difficultySelect = document.querySelector("#difficulty-setting");
-  const sideSelect = document.querySelector("#player-side");
   const motionSelect = document.querySelector("#motion-setting");
   const soundToggle = document.querySelector("#sound-toggle");
   let audioContext = null;
@@ -45,8 +44,6 @@
   function updateControls() {
     engineSelect.value = preferences.engineId;
     difficultySelect.value = preferences.difficulty;
-    sideSelect.value = preferences.playerColor;
-    document.querySelector(".lobby-start-emblem").textContent = preferences.playerColor === "b" ? "將" : "帥";
     motionSelect.value = preferences.motion;
     soundToggle.checked = preferences.sound;
   }
@@ -131,11 +128,6 @@
     preferences.difficulty = difficultySelect.value;
     savePreferences();
   });
-  sideSelect.addEventListener("change", () => {
-    preferences.playerColor = sideSelect.value === "b" ? "b" : "r";
-    savePreferences();
-    updateControls();
-  });
   motionSelect.addEventListener("change", () => {
     preferences.motion = motionSelect.value;
     savePreferences();
@@ -163,5 +155,13 @@
 
   updateControls();
   applyMotionPreference();
-  window.npSettings = { getPreferences: () => ({ ...preferences }), playMoveSound };
+  window.npSettings = {
+    getPreferences: () => ({ ...preferences }),
+    setPlayerColor(color) {
+      if (color !== "r" && color !== "b") return;
+      preferences.playerColor = color;
+      savePreferences();
+    },
+    playMoveSound,
+  };
 })();

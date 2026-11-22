@@ -1,5 +1,7 @@
 :root {
   color-scheme: light;
+  --xiangqi-font: "KaiTi", "STKaiti", "Kaiti SC", "DFKai-SB", "Noto Serif CJK SC", "SimSun", serif;
+  --ui-font: "Segoe UI Variable", "Segoe UI", "Microsoft YaHei UI", sans-serif;
   --ink: #20445b;
   --muted: #668398;
   --panel: #ffffff;
@@ -13,6 +15,7 @@
   --violet: #9dcaff;
   --edge: #cbeafa;
 }
+:root:lang(zh) { --ui-font: var(--xiangqi-font); }
 
 * { box-sizing: border-box; }
 body {
@@ -21,9 +24,10 @@ body {
   margin: 0;
   color: var(--ink);
   background: radial-gradient(ellipse at 53% 12%, #d9f4ff 0, var(--page) 68%);
-  font: 15px/1.5 "Segoe UI", "Microsoft YaHei", sans-serif;
+  font: 15px/1.5 var(--ui-font);
 }
 button { font: inherit; cursor: pointer; }
+input, select, textarea { font-family: inherit; }
 button:disabled { cursor: default; opacity: .46; }
 .app-shell { min-height: 100vh; display: flex; flex-direction: column; }
 .topbar, main, footer { width: min(1240px, 100%); margin: 0 auto; }
@@ -64,9 +68,9 @@ h1, h2, p { margin-top: 0; }
 .board-svg { display: block; width: 100%; height: auto; overflow: visible; }
 .board-lines { fill: none; stroke: var(--board-line); stroke-width: 1.6; }
 .board-boundary { fill: none; stroke: var(--board-line); stroke-width: 2; }
-.river-label { fill: #735a3f; font: 15px "Songti SC", "SimSun", serif; letter-spacing: 8px; }
+.river-label { fill: #735a3f; font: 15px var(--xiangqi-font); letter-spacing: 8px; }
 .piece circle { fill: #f2dfb7; stroke: #4e4438; stroke-width: 1.3; }
-.piece text { text-anchor: middle; dominant-baseline: central; font: bold 19px "Songti SC", "SimSun", serif; }
+.piece text { text-anchor: middle; dominant-baseline: central; font: bold 19px var(--xiangqi-font); }
 .piece.black text { fill: #263139; }
 .piece.red text { fill: var(--red); }
 .moving-piece { filter: drop-shadow(0 3px 4px #1b160f99); }
@@ -85,7 +89,7 @@ h1, h2, p { margin-top: 0; }
 .table-card { padding: 15px; }
 .player-bar { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 1px 2px 12px; }
 .player { display: flex; align-items: center; gap: 10px; min-width: 0; }
-.avatar { width: 38px; height: 38px; flex: 0 0 auto; display: grid; place-items: center; border: 1px solid #556574; border-radius: 12px; color: var(--gold); background: #30414c; font: 18px Georgia, "Songti SC", serif; }
+.avatar { width: 38px; height: 38px; flex: 0 0 auto; display: grid; place-items: center; border: 1px solid #556574; border-radius: 12px; color: var(--gold); background: #30414c; font: 18px var(--xiangqi-font); }
 .engine-avatar { color: #d9ccad; }
 .player-name { font-size: 13px; font-weight: 650; }
 .player-meta { color: var(--muted); font-size: 10px; }
@@ -185,7 +189,7 @@ h1, h2, p { margin-top: 0; }
 .result-card[data-winner="black"] { --result-accent: #e8a08d; }
 .result-card[data-winner="draw"] { --result-accent: #b7c7d1; }
 .result-card[data-winner] h1 { color: var(--result-accent); }
-.result-emblem { width: 58px; height: 58px; display: grid; place-items: center; margin: 0 auto 15px; border: 1px solid var(--result-accent); border-radius: 50%; color: var(--result-accent); font: 23px Georgia, serif; }
+.result-emblem { width: 58px; height: 58px; display: grid; place-items: center; margin: 0 auto 15px; border: 1px solid var(--result-accent); border-radius: 50%; color: var(--result-accent); font: 23px var(--xiangqi-font); }
 .result-card h1 { margin: 8px 0 5px; font: 500 39px Georgia, "Songti SC", serif; }
 .result-score { margin: 18px 0 17px; padding: 13px; border: 1px solid #344450; border-radius: 13px; color: #c7cfd1; background: #15212b; }
 .result-score strong { color: var(--result-accent); }
@@ -241,7 +245,7 @@ body {
     radial-gradient(ellipse at 12% 72%, #783c4b20 0, transparent 31%),
     linear-gradient(145deg, #100d17 0%, #17111f 52%, #100d17 100%);
   background-attachment: fixed;
-  font-family: "Segoe UI Variable", "Microsoft YaHei UI", "Microsoft YaHei", sans-serif;
+  font-family: var(--ui-font);
 }
 .topbar {
   position: relative;
@@ -284,7 +288,7 @@ main { position: relative; z-index: 1; padding-top: 24px; }
   margin-top: 16px;
   margin-bottom: 18px;
   color: #fff8ef;
-  font-family: "Microsoft YaHei UI", "Microsoft YaHei", sans-serif;
+  font-family: var(--ui-font);
   font-size: clamp(39px, 5.3vw, 64px);
   font-weight: 750;
   letter-spacing: -.045em;
@@ -542,7 +546,7 @@ main { position: relative; z-index: 1; padding-top: 24px; }
 }
 .result-card > * { position: relative; }
 .result-emblem { border-color: var(--result-accent); background: #ffffff08; box-shadow: 0 0 35px color-mix(in srgb, var(--result-accent), transparent 78%); }
-.result-card h1 { color: #fff5ec; font-family: "Microsoft YaHei UI", "Microsoft YaHei", sans-serif; font-weight: 750; }
+.result-card h1 { color: #fff5ec; font-family: var(--ui-font); font-weight: 750; }
 .result-score { border-color: #d8bd8c42; background: #100e176b; }
 .settings-dialog { border-color: #d6bd966b; background: linear-gradient(150deg, #2a2232, #18151f); }
 .settings-dialog::backdrop { background: #09070fce; backdrop-filter: blur(8px); }
@@ -598,7 +602,7 @@ body {
     radial-gradient(ellipse at 76% 7%, #ffffffd9 0, transparent 29%),
     linear-gradient(145deg, #f5fbff 0%, #eaf5fb 55%, #fbfcff 100%);
   background-attachment: fixed;
-  font-family: "Segoe UI Variable", "Microsoft YaHei UI", "Microsoft YaHei", sans-serif;
+  font-family: var(--ui-font);
 }
 body[data-character="red-horse"] {
   --character-accent: #dc7275;
@@ -634,7 +638,7 @@ body[data-character="black-horse"] {
   background: linear-gradient(145deg, #75d7f4, #529ee8);
   box-shadow: 0 5px 14px #52a5d33b, inset 0 1px #ffffffd9;
 }
-.brand-mark { border-color: #9ed9f0; border-radius: 14px 14px 14px 4px; color: #fff; background: linear-gradient(145deg, #75d7f4, #529ee8); font: 700 18px "Microsoft YaHei UI", "Microsoft YaHei", sans-serif; }
+.brand-mark { border-color: #9ed9f0; border-radius: 14px 14px 14px 4px; color: #fff; background: linear-gradient(145deg, #75d7f4, #529ee8); font: 700 18px var(--xiangqi-font); }
 .brand-name { color: #1f4b68; letter-spacing: .16em; }
 .brand-sub { color: #66869a; }
 .topbar-right { color: #5d7b8e; }
@@ -659,7 +663,7 @@ main { position: relative; z-index: 1; padding-top: 24px; }
   margin-top: 16px;
   margin-bottom: 18px;
   color: #173f5b;
-  font-family: "Microsoft YaHei UI", "Microsoft YaHei", sans-serif;
+  font-family: var(--ui-font);
   font-size: clamp(39px, 5.3vw, 64px);
   font-weight: 760;
   letter-spacing: -.045em;
@@ -739,7 +743,7 @@ main { position: relative; z-index: 1; padding-top: 24px; }
   border-radius: 50%;
   color: var(--character-accent);
   background: #fff;
-  font: 700 14px "Songti SC", "SimSun", serif;
+  font: 700 14px var(--xiangqi-font);
 }
 .home-hero-stage {
   position: relative;
@@ -790,7 +794,7 @@ main { position: relative; z-index: 1; padding-top: 24px; }
 }
 .hero-ornament-one { top: 112px; right: 37px; }
 .hero-ornament-two { right: 48%; bottom: 73px; width: 42px; border-width: 1px; }
-.hero-ornament::after { color: color-mix(in srgb, var(--character-accent), white 25%); font: 700 25px "Songti SC", "SimSun", serif; }
+.hero-ornament::after { color: color-mix(in srgb, var(--character-accent), white 25%); font: 700 25px var(--xiangqi-font); }
 .hero-ornament-one::after { content: "馬"; }
 body[data-character$="-rook"] .hero-ornament-one::after { content: "車"; }
 .hero-ornament-two::after { content: "九"; font-size: 14px; }
@@ -953,7 +957,7 @@ body[data-character$="-rook"] .hero-ornament-one::after { content: "車"; }
 }
 .result-card > * { position: relative; }
 .result-emblem { border-color: var(--result-accent); background: #ffffffa8; box-shadow: 0 0 30px color-mix(in srgb, var(--result-accent), transparent 80%); }
-.result-card h1 { color: #29546e; font-family: "Microsoft YaHei UI", "Microsoft YaHei", sans-serif; font-weight: 760; }
+.result-card h1 { color: #29546e; font-family: var(--ui-font); font-weight: 760; }
 .result-score { border-color: #c8e3ed; color: #58768a; background: #f3faff; }
 .settings-dialog { border-color: #b8deec; background: linear-gradient(150deg, #ffffff, #f1faff); }
 .settings-dialog::backdrop { background: #254d6382; backdrop-filter: blur(8px); }

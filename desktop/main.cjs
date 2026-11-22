@@ -1,7 +1,12 @@
 const { app, BrowserWindow, ipcMain } = require("electron");
 const os = require("node:os");
 const path = require("node:path");
+const { randomInt } = require("node:crypto");
+const { setTimeout: wait } = require("node:timers/promises");
 const { Xiangqi } = require("../vendor/xiangqi-js/xiangqi.js");
+const castling = require("./palace-castling.js");
+const jieqi = require("./jieqi.js");
+const { chooseJieqiMove } = require("./jieqi-ai.cjs");
 const { resolveGameResult } = require("./game-rules.cjs");
 const { reviewGame, terminalEvaluation } = require("./game-analysis.cjs");
 const {
@@ -56,7 +61,7 @@ function getLanInviteUrls(port) {
 function createWebApi(server = null, listenHost = "127.0.0.1") {
   return {
     getState: () => snapshot(),
-    startGame: (engineId, color, difficulty) => startGame(engineId, color, difficulty),
+    startGame,
     getLegalMoves,
     submitMove,
     analyzeGame: (moves, onProgress, engineId) => analyzeSavedGame(moves, onProgress, engineId),
@@ -158,6 +163,8 @@ function snapshot() {
     finalFen: game.fen(),
     turn: game.turn(),
     history: game.history(),
+    ...(game.draw ? { variant: castling.variant, draw: game.draw } : {}),
+    ...(game.jieqi ? { variant: jieqi.variant, jieqiLog: game.log(playerColor) } : {}),
     revision: gameRevision,
     phase,
     status,
@@ -165,7 +172,7 @@ function snapshot() {
     outcome,
     engineFailure,
     engineId: currentEngineId,
-    engineName: engineDefinition(currentEngineId).name,
+    engineName: currentOpponentName(),
     playerColor,
     inCheck: game.in_check(),
   };
@@ -218,12 +225,17 @@ function publish() {
   for (const listener of webStateListeners) listener(current);
 }
 
-function createUciEngine(engineId = currentEngineId) {
+function createUciEngine(engineId = currentEngineId, gameVariant = null) {
   return new UciEngine(engineId, {
+    gameVariant,
     isPackaged: app.isPackaged,
     resourcesPath: process.resourcesPath,
     projectRoot: path.join(__dirname, ".."),
   });
+}
+
+function currentOpponentName() {
+  return game.jieqi ? "揭棋 AI" : engineDefinition(currentEngineId).name;
 }
 
 function finish(winner, reason, pattern = null) {
@@ -231,7 +243,7 @@ function finish(winner, reason, pattern = null) {
   thinking = false;
   engineFailure = false;
   const title = winner === "draw" ? "本局和棋"
-    : winner === (playerColor === "b" ? "black" : "red") ? "你赢了" : `${engineDefinition(currentEngineId).name} 获胜`;
+    : winner === (playerColor === "b" ? "black" : "red") ? "你赢了" : `${currentOpponentName()} 获胜`;
   outcome = { winner, title, reason };
   if (pattern) outcome.pattern = pattern;
   status = `${outcome.title} · ${reason}`;
@@ -244,11 +256,13 @@ function checkResult() {
   return true;
 }
 
-async function startGame(engineId = currentEngineId, color = "r", difficulty = DEFAULT_DIFFICULTY) {
-  const nextEngineId = normalizeEngineId(engineId);
+async function startGame(engineId = currentEngineId, color = "r", difficulty = DEFAULT_DIFFICULTY, variant = null) {
+  const engineVariant = variant === castling.variant ? castling.variant : null;
+  const nextEngineId = engineVariant ? "fairy-stockfish" : normalizeEngineId(engineId);
   const generation = ++gameGeneration;
   const previousEngine = engine;
-  if (previousEngine && (previousEngine.engineId !== nextEngineId || thinking)) {
+  if (previousEngine && (variant === jieqi.variant || previousEngine.engineId !== nextEngineId
+    || (previousEngine.gameVariant ?? null) !== engineVariant || thinking)) {
     engine = null;
     await previousEngine.stop();
   } else if (previousEngine) {
@@ -263,7 +277,8 @@ async function startGame(engineId = currentEngineId, color = "r", difficulty = D
   currentEngineId = nextEngineId;
   playerColor = color === "b" ? "b" : "r";
   currentDifficulty = normalizeDifficulty(difficulty);
-  game = new Xiangqi();
+  if (engineVariant) game = castling.game(castling.deal(randomInt));
+  else game = variant === jieqi.variant ? jieqi.game({ randomInt }) : new Xiangqi();
   phase = "playing";
   status = playerColor === "b" ? "轮到你走（黑方）" : "轮到你走（红方）";
   thinking = false;
@@ -295,7 +310,7 @@ function submitMove(move, difficulty) {
 }
 
 function undoGame() {
-  if (phase !== "playing" || thinking || game.turn() !== playerColor || game.history().length < 2) return { ok: false };
+  if (game.jieqi || phase !== "playing" || thinking || game.turn() !== playerColor || game.history().length < 2) return { ok: false };
   game.undo();
   game.undo();
   outcome = null;
@@ -358,13 +373,22 @@ async function runEngineTurn(difficulty = currentDifficulty) {
   const generation = gameGeneration;
   thinking = true;
   engineFailure = false;
-  status = `${engineDefinition(currentEngineId).name} 正在思考…`;
+  status = `${currentOpponentName()} 正在思考…`;
   publish();
   let searchingEngine = null;
   try {
-    if (!engine) engine = createUciEngine(currentEngineId);
-    searchingEngine = engine;
-    const move = await searchingEngine.search(game.history(), difficulty);
+    let move;
+    if (game.jieqi) {
+      await wait(200);
+      if (generation !== gameGeneration || phase !== "playing") return;
+      move = chooseJieqiMove({ board: game.board(), finalFen: game.fen(), jieqiLog: game.log(game.turn()) }, difficulty);
+    } else {
+      const engineVariant = game.palaceCastling ? castling.variant : null;
+      if (!engine) engine = createUciEngine(currentEngineId, engineVariant);
+      searchingEngine = engine;
+      const position = engineVariant ? { fen: game.fen(), legalMoves: game.moves() } : undefined;
+      move = await searchingEngine.search(game.history(), difficulty, position);
+    }
     if (generation !== gameGeneration || phase !== "playing") return;
     const result = game.move(move);
     if (!result) throw new Error(`引擎着法未通过规则校验：${move}`);
@@ -416,9 +440,9 @@ ipcMain.handle("game:get-state", () => {
   const port = friendRoomServer?.address()?.port;
   return { ...state, inviteUrls: port ? getLanInviteUrls(port) : [] };
 });
-ipcMain.handle("game:start", async (_event, engineId, color, difficulty) => {
+ipcMain.handle("game:start", async (_event, engineId, color, difficulty, variant) => {
   leaveDesktopRoom();
-  return startGame(engineId, color, difficulty);
+  return startGame(engineId, color, difficulty, variant);
 });
 ipcMain.handle("game:get-legal-moves", (_event, square) => remoteRoom ? remoteRoom.getLegalMoves(square) : activeDesktopRoom
   ? friendRooms.getLegalMoves(activeDesktopRoom.code, activeDesktopRoom.token, square)
@@ -451,9 +475,10 @@ ipcMain.handle("room:leave", () => {
   leaveDesktopRoom();
   return snapshot();
 });
-ipcMain.handle("remote:create", (_event, color) => enterRemoteRoom({ color }));
-ipcMain.handle("remote:join", (_event, code) => enterRemoteRoom({ code: code ?? "" }));
+ipcMain.handle("remote:create", (_event, variant) => enterRemoteRoom({ lobby: true, variant }));
+ipcMain.handle("remote:join", (_event, code) => enterRemoteRoom({ code: code ?? "", lobby: true }));
 ipcMain.handle("remote:cancel", cancelRemoteConnection);
+ipcMain.handle("remote:lobby-action", (_event, action, side) => remoteRoom?.lobbyAction(action, side) || { ok: false, error: "remoteRoomClosed" });
 
 async function runSmokeTest() {
   try {
@@ -481,6 +506,7 @@ async function runSideUiSmokeTest() {
     const board = document.querySelector('#game-board');
     const preferences = window.npSettings.getPreferences();
     const language = window.npI18n.getLanguage();
+    const priorGameArchive = localStorage.getItem(SAVED_GAMES_KEY);
     const sound = window.npSettings.playMoveSound;
     const sounds = [];
     window.npSettings.playMoveSound = options => sounds.push(options || {});
@@ -510,12 +536,9 @@ async function runSideUiSmokeTest() {
       for (const engineId of ['pikafish', 'fairy-stockfish']) {
         showScreen('home');
         window.npI18n.setLanguage('zh');
-        set('#player-side','b');
         set('#engine-setting',engineId);
         set('#difficulty-setting','beginner');
         set('#motion-setting',engineId === 'pikafish' ? 'full' : 'reduce');
-        assert(window.npSettings.getPreferences().playerColor === 'b'
-          && JSON.parse(localStorage.getItem('ninepalace.preferences.v2')).playerColor === 'b', '执棋方偏好未保存');
         const seen = [];
         const stop = window.ninepalace.onState(position => seen.push(position));
         const hands = [];
@@ -525,7 +548,14 @@ async function runSideUiSmokeTest() {
         });
         observer.observe(board,{childList:true});
         try {
-          document.querySelector('[data-screen="home"] [data-action="start"]').click();
+          document.querySelector('[data-screen="home"] [data-action="practice"]').click();
+          const chooseBlack = document.querySelector('#practice-form input[value="b"]');
+          assert(practiceDialog.open && practiceStart.disabled, '人机选边前开始按钮没有锁定');
+          chooseBlack.click();
+          assert(!practiceStart.disabled && document.body.dataset.view === 'home', '人机选择黑方后没有等待开始');
+          practiceStart.click();
+          assert(window.npSettings.getPreferences().playerColor === 'b'
+            && JSON.parse(localStorage.getItem('ninepalace.preferences.v2')).playerColor === 'b', '执棋方偏好未保存');
           const opening = await wait(position => position.playerColor === 'b' && position.engineId === engineId
             && position.history.length === 1 && position.turn === 'b' && !position.thinking
             && document.body.dataset.view === 'match' && position, 'AI 未执红先走：'+engineId);
@@ -541,8 +571,7 @@ async function runSideUiSmokeTest() {
           assert(document.querySelector('#top-player-meta').textContent === '红方'
             && document.querySelector('#bottom-player-meta').textContent === '黑方'
             && document.querySelector('#bottom-avatar').textContent === '將'
-            && document.querySelector('#bottom-avatar').dataset.side === 'b'
-            && document.querySelector('.lobby-start-emblem').textContent === '將', '侧边玩家阵营信息不正确');
+            && document.querySelector('#bottom-avatar').dataset.side === 'b', '侧边玩家阵营信息不正确');
           assert(document.querySelector('#undo-button').disabled && !(await window.ninepalace.undo()).ok, '不能单独撤销 AI 的开局');
           assert(!(await window.ninepalace.getLegalMoves(opening.history[0].slice(2))).length, '黑方玩家可以选中红棋');
           const beforeX = blackKing.getBoundingClientRect().x;
@@ -555,7 +584,7 @@ async function runSideUiSmokeTest() {
           board.dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowDown',bubbles:true}));
           window.npI18n.setLanguage('en');
           assert(document.querySelector('#game-status').textContent === 'Your turn (Black)'
-            && document.querySelector('#player-side option[value="b"]').textContent === 'Black · Second', '执黑英文文案不正确');
+            && document.querySelector('#practice-form [data-i18n="playBlack"]').textContent === 'Black · Second', '执黑英文文案不正确');
           window.npI18n.setLanguage('zh');
           document.querySelector('#variation-toggle').click();
           assert(variation?.game.turn() === 'b', '执黑时无法开始推演');
@@ -601,10 +630,47 @@ async function runSideUiSmokeTest() {
           document.querySelector('#lesson-exit').click();
         } finally { stop(); observer.disconnect(); }
       }
+
+      const selectPractice = (side, variant) => {
+        showScreen('home');
+        document.querySelector('[data-screen="home"] [data-action="practice"]').click();
+        set('#practice-variant', variant);
+        assert(document.querySelector('#practice-variant').value === variant, '人机玩法选项缺失');
+        practiceForm.querySelector('input[value="' + side + '"]').click();
+        practiceStart.click();
+      };
+      set('#engine-setting', 'pikafish');
+      const isCastling = position => position.variant === castling.variant && position.engineId === 'fairy-stockfish'
+        && !position.thinking && !position.engineFailure && document.body.dataset.view === 'match';
+      selectPractice('r', castling.variant);
+      const red = await wait(position => isCastling(position) && position.playerColor === 'r' && !position.history.length,
+        '执红未开启王车易位');
+      assert(castling.validDraw(red.draw) && document.querySelectorAll('#castling-draw-results .castling-card-badge').length === 4,
+        '人机开局未显示双方抽签');
+      await clickMove('e3e4');
+      await wait(position => isCastling(position) && position.history.length === 2 && position.turn === 'r', '易位引擎未执黑应手');
+      assert((await window.ninepalace.resign()).ok, '易位对局认输失败');
+      await wait(() => document.body.dataset.view === 'result', '易位对局结果未显示');
+      document.querySelector('#result-review').click();
+      assert(document.body.dataset.view === 'replay' && castling.drawKey(currentReplay.draw) === castling.drawKey(red.draw),
+        '易位棋谱未恢复抽签结果');
+      showScreen('result');
+      document.querySelector('[data-screen="result"] [data-action="start"]').click();
+      await wait(position => isCastling(position) && !position.history.length, '再来一局未保留易位玩法');
+      selectPractice('b', castling.variant);
+      await wait(position => isCastling(position) && position.playerColor === 'b' && position.history.length === 1
+        && position.turn === 'b' && board.dataset.orientation === 'black', '执黑易位未翻转棋盘或让 AI 先走');
+      set('#engine-setting', 'fairy-stockfish');
+      selectPractice('b', '');
+      await wait(position => !position.variant && !position.thinking && !position.engineFailure && position.engineId === 'fairy-stockfish'
+        && position.history.length === 1 && position.turn === 'b', '从易位切回标准 Fairy-Stockfish 后无法开局');
     } finally {
       window.npSettings.playMoveSound = sound;
-      for (const [selector,key] of [['#player-side','playerColor'],['#engine-setting','engineId'],['#difficulty-setting','difficulty'],['#motion-setting','motion']]) set(selector,preferences[key]);
+      window.npSettings.setPlayerColor(preferences.playerColor);
+      for (const [selector,key] of [['#engine-setting','engineId'],['#difficulty-setting','difficulty'],['#motion-setting','motion']]) set(selector,preferences[key]);
       window.npI18n.setLanguage(language);
+      if (priorGameArchive === null) localStorage.removeItem(SAVED_GAMES_KEY);
+      else localStorage.setItem(SAVED_GAMES_KEY, priorGameArchive);
     }
   })()`);
 
@@ -634,7 +700,7 @@ async function runSideUiSmokeTest() {
   rejectOldSearch(new Error("test stale search"));
   await oldTurn;
   if (playerColor !== "r" || thinking || engineFailure || game.history().length) throw new Error("旧的 AI 开局破坏了换边后的新对局");
-  console.log("NINEPALACE_SIDE_SMOKE_OK engines=2 black-opening=ok flip=pointer+keyboard+aria hands=both-directions undo=preserves-opening variation=apply-first result+replay=perspective tutorial=red retry+stale-search=ok");
+  console.log("NINEPALACE_SIDE_SMOKE_OK engines=2 black-opening=ok flip=pointer+keyboard+aria hands=both-directions undo=preserves-opening variation=apply-first result+replay=perspective tutorial=red retry+stale-search=ok castling=red+black+replay+rematch");
 }
 
 async function runUiSmokeTest() {
@@ -648,34 +714,101 @@ async function runUiSmokeTest() {
       if (lobby.querySelector('.home-copy, .feature-row, .preview-card, #home-board')) {
         throw new Error('大厅仍然包含宣传页文案、特点标签或演示棋盘');
       }
-      const lobbyActions = ['start', 'create-room', 'join-room', 'tutorial', 'history'];
-      for (const action of lobbyActions) {
-        const button = lobby.querySelector('[data-action="' + action + '"]');
-        // Desktop hosts rooms; guests join through a browser invitation.
-        if (action === 'join-room' && location.protocol === 'file:' && button?.hidden) continue;
+      const lobbyActor = lobby.querySelector('.lobby-actor');
+      if (lobby.querySelector('canvas') || lobbyActor?.querySelectorAll('.lobby-foot-shadow').length !== 2) {
+        throw new Error('大厅没有使用带脚下阴影的 2D 立绘');
+      }
+      if (getComputedStyle(document.querySelector('.topbar .brand')).display !== 'none' || lobby.querySelector('#player-side, .lobby-menu-heading, .lobby-nameplate')) {
+        throw new Error('大厅保留了旧的标题或选边入口');
+      }
+      const quote = lobby.querySelector('#lobby-character-quote');
+      if (!quote?.textContent.trim() || getComputedStyle(quote).backgroundColor !== 'rgba(0, 0, 0, 0)') {
+        throw new Error('角色台词未直接显示在场景中');
+      }
+      const accountButton = document.querySelector('#lobby-account-open');
+      const characterButton = document.querySelector('#lobby-character-open');
+      const settingsButton = document.querySelector('#settings-open');
+      const cornerControls = [...document.querySelector('.topbar-right').children].filter(node => node.getClientRects().length);
+      if (cornerControls.length !== 2 || cornerControls[0] !== characterButton || cornerControls[1] !== settingsButton) {
+        throw new Error('角色和设置没有并排位于大厅右上角');
+      }
+      if (accountButton.getAttribute('aria-label') !== '账户' || !accountButton.querySelector('svg')
+        || accountButton.getBoundingClientRect().right >= characterButton.getBoundingClientRect().left) {
+        throw new Error('账户图标没有显示在大厅左上角');
+      }
+      const lobbyActions = ['practice', 'friend-menu', 'tutorial', 'entertainment'];
+      const menuButtons = lobbyActions.map(action => lobby.querySelector('[data-action="' + action + '"]'));
+      const lobbyButtons = [accountButton, ...cornerControls, ...menuButtons];
+      const installButton = lobby.querySelector('#pwa-install-button');
+      if (!installButton.hidden) lobbyButtons.push(installButton);
+      for (const button of lobbyButtons) {
         const rect = button?.getBoundingClientRect();
         if (!rect || rect.width < 40 || rect.height < 36 || rect.left < 0 || rect.right > innerWidth || rect.top < 0 || rect.bottom > innerHeight) {
-          throw new Error('大厅入口被裁切或无法点击：' + action);
+          throw new Error('大厅入口被裁切或无法点击：' + (button?.dataset.action || button?.id));
+        }
+        const face = getComputedStyle(button);
+        const pattern = getComputedStyle(button, '::after');
+        if (Math.abs(rect.width - rect.height) > 1 || face.borderRadius !== '50%' || face.backdropFilter === 'none'
+          || !pattern.backgroundImage.includes('ninepalace-piece-border.svg')
+          || (button !== accountButton && button.innerText.trim() !== button.querySelector('.lobby-piece-label')?.innerText.trim())) {
+          throw new Error('大厅入口未使用半透明花纹棋子和功能名称');
         }
       }
+      const menuBounds = menuButtons.map(button => button.getBoundingClientRect());
+      if (menuBounds[0].left <= menuBounds[1].left || menuBounds[2].left <= menuBounds[3].left
+        || menuBounds.some((rect, i) => i > 0 && rect.top <= menuBounds[i - 1].top)) {
+        throw new Error('大厅主棋子没有按右、左、右、左的顺序交错排列');
+      }
+      for (const [index, rect] of menuBounds.entries()) {
+        if (menuBounds.slice(index + 1).some(other => rect.left < other.right && other.left < rect.right
+          && rect.top < other.bottom && other.top < rect.bottom)) throw new Error('大厅主棋子互相遮挡');
+      }
+      menuButtons[3].click();
+      const lobbyToast = document.querySelector('#toast');
+      if (window.ninepalace.createRemoteRoom) {
+        const casualMenu = document.querySelector('#entertainment-dialog');
+        if (!casualMenu.open || !casualMenu.querySelector('[data-action="jieqi-room"]')) throw new Error('娱乐模式没有显示玩法选择');
+        casualMenu.querySelector('[data-action="castling-room"]').click();
+        const casualDialog = document.querySelector('#remote-room-dialog');
+        if (!casualDialog.open || document.querySelector('#remote-room-title').textContent !== '王车易位'
+          || document.querySelector('#remote-castling-info').hidden) throw new Error('娱乐模式入口没有打开王车易位');
+        casualDialog.close();
+      } else {
+        if (lobbyToast.hidden || lobbyToast.textContent !== '请在 NinePalace Windows 客户端开房或加入。') {
+          throw new Error('网页娱乐模式入口没有显示 Windows 远程联机指引');
+        }
+        lobbyToast.hidden = true;
+      }
+      accountButton.click();
+      const account = document.querySelector('[data-screen="account"]');
+      if (!account.classList.contains('active') || !account.querySelector('#history-list')) throw new Error('账户未显示最近棋谱');
+      const accountLosses = () => Number(account.querySelector('#account-losses').textContent.replaceAll(',', ''));
+      const priorAccountLosses = accountLosses();
+      account.querySelector('[data-action="home"]').click();
+      const border = new Image();
+      border.src = './assets/ninepalace-piece-border.svg';
+      await border.decode();
       const characterFiles = {
-        'red-rook': ['ninepalace-red-rook-girl.png', '绯音'],
-        'red-horse': ['ninepalace-red-horse-girl.png', '朱羽'],
-        'black-rook': ['ninepalace-black-rook-loli.png', '墨铃'],
-        'black-horse': ['ninepalace-black-horse-loli.png', '玄芽'],
+        'red-rook': ['ninepalace-red-rook-girl.png', 'redRookQuote', '绯音'],
+        'red-horse': ['ninepalace-red-horse-white-tights.png', 'redHorseQuote', '朱羽'],
+        'black-rook': ['ninepalace-black-rook-loli.png', 'blackRookQuote', '墨铃'],
+        'black-horse': ['ninepalace-black-horse-adult.png', 'blackHorseQuote', '玄芽'],
       };
       const characterColors = new Set();
-      for (const [id, [file, name]] of Object.entries(characterFiles)) {
+      characterButton.click();
+      if (document.body.dataset.view !== 'characters') throw new Error('角色入口未打开角色界面');
+      for (const [id, [file, quoteKey, name]] of Object.entries(characterFiles)) {
         const choice = document.querySelector('[data-character-id="' + id + '"]');
-        if (!choice) throw new Error('首页缺少棋友切换按钮：' + id);
+        if (!choice) throw new Error('角色界面缺少棋友切换按钮：' + id);
         choice.click();
         const hero = document.querySelector('#lobby-character');
         const portrait = document.querySelector('#companion-portrait');
         if (document.body.dataset.character !== id || hero.getAttribute('src') !== './assets/' + file || portrait.getAttribute('src') !== './assets/' + file) {
           throw new Error('棋友切换后立绘没有同步：' + id);
         }
-        if (document.querySelector('#lobby-character-name').textContent !== name || choice.getAttribute('aria-pressed') !== 'true') {
-          throw new Error('棋友切换后名字或选中状态没有同步：' + id);
+        await hero.decode();
+        if (quote.textContent !== window.npI18n.t(quoteKey) || document.querySelector('#companion-name').textContent !== name || choice.getAttribute('aria-pressed') !== 'true') {
+          throw new Error('棋友切换后台词、名字或选中状态没有同步：' + id);
         }
         if (localStorage.getItem('ninepalace.character.v1') !== id) throw new Error('棋友选择没有保存在本机：' + id);
         if (handCharacterFor('r') !== id || handCharacterFor('b') === id) throw new Error('角色选择没有同步到执棋手：' + id);
@@ -683,16 +816,30 @@ async function runUiSmokeTest() {
       }
       if (characterColors.size !== 4) throw new Error('四位棋友没有各自独立的主题色');
       document.querySelector('[data-character-id="red-rook"]').click();
-      const priorRecordIds = new Set(JSON.parse(localStorage.getItem('ninepalace.saved-games.v1') || '[]').map((record) => record.id));
-      const languageButton = document.querySelector('#language-toggle');
-      languageButton.click();
-      if (document.documentElement.lang !== 'en' || !document.querySelector('[data-screen="home"] [data-action="start"]').textContent.includes('Play vs engine')) {
+      document.querySelector('[data-screen="characters"] [data-action="home"]').click();
+      if (document.body.dataset.view !== 'home') throw new Error('无法从角色界面返回大厅');
+      const priorGameArchive = localStorage.getItem(SAVED_GAMES_KEY);
+      const priorRecordIds = new Set(readSavedGames().map((record) => record.id));
+      const previousPreferences = window.npSettings.getPreferences();
+      settingsButton.click();
+      const dialog = document.querySelector('#settings-dialog');
+      const languageSetting = dialog.querySelector('#language-setting');
+      if (!dialog.open || dialog.querySelector('#settings-player').textContent !== '访客玩家' || languageSetting.value !== 'zh') {
+        throw new Error('设置未展示访客身份和当前语言');
+      }
+      const selectLanguage = (language) => {
+        languageSetting.value = language;
+        languageSetting.dispatchEvent(new Event('change', { bubbles: true }));
+      };
+      selectLanguage('en');
+      if (document.documentElement.lang !== 'en' || !document.querySelector('[data-screen="home"] [data-action="practice"]').textContent.includes('Play vs engine')) {
         throw new Error('英文界面切换未覆盖首页关键操作');
       }
-      languageButton.click();
-      if (document.documentElement.lang !== 'zh-CN') throw new Error('简体中文界面无法切回');
-      const previousPreferences = window.npSettings.getPreferences();
-      document.querySelector('#settings-open').click();
+      if (localStorage.getItem('ninepalace.preferences.language') !== 'en' || dialog.querySelector('#settings-player').textContent !== 'Guest player') {
+        throw new Error('语言设置没有保存或访客信息没有翻译');
+      }
+      selectLanguage('zh');
+      if (document.documentElement.lang !== 'zh-CN' || !dialog.open) throw new Error('设置内无法切回简体中文');
       const engineSetting = document.querySelector('#engine-setting');
       if (engineSetting.value !== previousPreferences.engineId) throw new Error('对弈引擎没有从本地偏好载入');
       engineSetting.value = 'fairy-stockfish';
@@ -792,9 +939,15 @@ async function runUiSmokeTest() {
         await waitFor(() => board.getAttribute('aria-busy') !== 'true', '棋子没有落稳');
       };
 
-      const homeStart = document.querySelector('[data-screen="home"].active [data-action="start"]');
+      const homeStart = document.querySelector('[data-screen="home"].active [data-action="practice"]');
       if (!homeStart) throw new Error('找不到首页的开始对局按钮');
       homeStart.click();
+      if (!practiceDialog.open || !practiceStart.disabled) throw new Error('人机对局未要求先选择红黑方');
+      document.querySelector('#practice-close').click();
+      if (practiceDialog.open || (await window.ninepalace.getState()).phase !== 'home') throw new Error('关闭选边仍然开始了对局');
+      homeStart.click();
+      document.querySelector('#practice-form input[value="r"]').click();
+      practiceStart.click();
       await waitFor((next) => next.phase === 'playing' && next.engineId === 'fairy-stockfish', '选择 Fairy-Stockfish 后没有按所选引擎开始对局');
       if (document.body.dataset.view !== 'match') throw new Error('开始对局后没有切换离开大厅布局');
       const tableBounds = document.querySelector('.match-table').getBoundingClientRect();
@@ -817,7 +970,7 @@ async function runUiSmokeTest() {
       };
       const positionSignature = (position) => JSON.stringify([position.board, position.history, position.turn, position.phase, position.thinking, position.outcome, position.finalFen]);
       const beforePractice = positionSignature(await window.ninepalace.getState());
-      const recordsBeforePractice = localStorage.getItem('ninepalace.saved-games.v1');
+      const recordsBeforePractice = localStorage.getItem(SAVED_GAMES_KEY);
       document.querySelector('#variation-toggle').click();
       if (document.querySelector('#variation-panel').hidden || document.querySelector('#variation-toggle').getAttribute('aria-pressed') !== 'true') throw new Error('推演模式没有开启');
       await playPracticeMove('b2e2');
@@ -830,9 +983,11 @@ async function runUiSmokeTest() {
       document.querySelector('#variation-back').click();
       await playPracticeMove('a6a5');
       if (!document.querySelector('#variation-forward').disabled) throw new Error('改走其他路线后仍保留了过期重做');
-      languageButton.click();
+      settingsButton.click();
+      selectLanguage('en');
       if (practiceCount() !== 2 || !document.querySelector('#variation-title').textContent.includes('Practice')) throw new Error('英文切换丢失推演路线');
-      languageButton.click();
+      selectLanguage('zh');
+      dialog.querySelector('button[type="submit"]').click();
       document.querySelector('#variation-reset').click();
       if (practiceCount() !== 0 || !document.querySelector('#variation-commit').disabled || !document.querySelector('#variation-forward').disabled) throw new Error('推演重置没有回到实战起点');
       practiceBoard.querySelector('[data-square="b2"]').dispatchEvent(new MouseEvent('click', { bubbles: true }));
@@ -841,7 +996,7 @@ async function runUiSmokeTest() {
       if (practiceCount() !== 1) throw new Error('推演模式无法使用键盘落子');
       document.querySelector('#variation-exit').click();
       if (positionSignature(await window.ninepalace.getState()) !== beforePractice) throw new Error('试走或退出推演改变了实战');
-      if (localStorage.getItem('ninepalace.saved-games.v1') !== recordsBeforePractice) throw new Error('推演写入了实战棋谱');
+      if (localStorage.getItem(SAVED_GAMES_KEY) !== recordsBeforePractice) throw new Error('推演写入了实战棋谱');
       if (!document.querySelector('#variation-panel').hidden || !practiceBoard.querySelector('[data-square="b2"]').getAttribute('aria-label').includes('红炮')) throw new Error('退出后没有还原实战棋盘');
       document.querySelector('#variation-toggle').click();
       await playPracticeMove('b2e2');
@@ -898,7 +1053,7 @@ async function runUiSmokeTest() {
       if (!document.querySelector('#result-score').textContent.includes('Fairy-Stockfish 获胜')) {
         throw new Error('结果页没有显示所选引擎 Fairy-Stockfish');
       }
-      const savedRecord = await waitFor(() => JSON.parse(localStorage.getItem('ninepalace.saved-games.v1') || '[]')
+      const savedRecord = await waitFor(() => readSavedGames()
         .find((record) => !priorRecordIds.has(record.id) && record.reason === '你选择认输'), '结束对局后没有保存本地棋谱');
       if (savedRecord.moves.length !== 2 || !savedRecord.pgn || !savedRecord.finalFen || savedRecord.engineId !== 'fairy-stockfish') throw new Error('本地棋谱缺少着法、所选引擎标识、PGN 或终局局面');
       if (document.querySelector('#result-review').disabled) throw new Error('已保存棋谱但结算页复盘按钮不可用');
@@ -911,10 +1066,11 @@ async function runUiSmokeTest() {
       await waitFor(() => document.querySelector('[data-screen="match"].active'), '重新开局后没有返回对局页');
       document.querySelector('[data-screen="match"].active [data-action="home"]').click();
       await waitFor(() => document.querySelector('[data-screen="home"].active'), '无法从对局返回首页');
-      document.querySelector('[data-screen="home"].active [data-action="history"]').click();
-      await waitFor(() => document.querySelector('[data-screen="history"].active')
+      accountButton.click();
+      await waitFor(() => account.classList.contains('active')
         && Array.from(document.querySelectorAll('[data-replay-id]')).some((entry) => entry.dataset.replayId === savedRecord.id),
-      '最近棋谱列表没有显示刚结束的对局');
+      '账户中的最近棋谱没有显示刚结束的对局');
+      if (accountLosses() !== priorAccountLosses + 1) throw new Error('账户统计没有计入这局负局');
       Array.from(document.querySelectorAll('[data-replay-id]')).find((entry) => entry.dataset.replayId === savedRecord.id).click();
       await waitFor(() => document.querySelector('[data-screen="replay"].active')
         && document.querySelector('#replay-position').textContent === '0 / 2 手', '棋谱没有从初始局面开始回放');
@@ -944,12 +1100,10 @@ async function runUiSmokeTest() {
       if (!document.querySelector('#replay-board .review-best-arrow')) throw new Error('正招没有在棋盘上显示路线');
       document.querySelector('#review-detail [data-review-action="played"]').click();
       if (document.querySelector('#replay-board .review-best-arrow')) throw new Error('返回实战着法后正招箭头仍显示');
-      document.querySelector('[data-screen="replay"].active [data-action="history"]').click();
-      await waitFor(() => document.querySelector('[data-screen="history"].active'), '无法从回放返回最近棋谱');
-      localStorage.setItem('ninepalace.saved-games.v1', JSON.stringify(
-        JSON.parse(localStorage.getItem('ninepalace.saved-games.v1') || '[]').filter((record) => record.id !== savedRecord.id)));
-      document.querySelector('[data-screen="history"].active [data-action="home"]').click();
-      await waitFor(() => document.querySelector('[data-screen="home"].active'), '无法从棋谱列表返回首页');
+      document.querySelector('[data-screen="replay"].active [data-action="account"]').click();
+      await waitFor(() => account.classList.contains('active'), '无法从回放返回账户');
+      account.querySelector('[data-action="home"]').click();
+      await waitFor(() => lobby.classList.contains('active'), '无法从账户返回大厅');
       document.querySelector('[data-screen="home"].active [data-action="tutorial"]').click();
       await waitFor((next) => next.phase === 'playing'
         && document.querySelector('[data-screen="match"].active')
@@ -980,6 +1134,8 @@ async function runUiSmokeTest() {
       await waitFor(() => document.querySelector('#lesson-card').hidden, '跳过操作没有关闭教学卡片');
       engineSetting.value = previousPreferences.engineId;
       engineSetting.dispatchEvent(new Event('change', { bubbles: true }));
+      if (priorGameArchive === null) localStorage.removeItem(SAVED_GAMES_KEY);
+      else localStorage.setItem(SAVED_GAMES_KEY, priorGameArchive);
       const finalState = await window.ninepalace.getState();
       return { history: finalState.history, phase: finalState.phase, tutorialCompleted: true };
     })()`);
@@ -987,7 +1143,7 @@ async function runUiSmokeTest() {
       throw new Error(`新手教学完成状态不正确：${JSON.stringify(result)}`);
     }
     await runSideUiSmokeTest();
-    console.log("NINEPALACE_UI_SMOKE_OK start=ok pointer=ok keyboard-aria=ok engine=ok undo=ok resign=result restart=ok replay=ok analysis=ok tutorial=complete+skip variation=both-sides+undo+redo+reset+cancel+apply-first side=red+black");
+    console.log("NINEPALACE_UI_SMOKE_OK lobby=account+entertainment start=ok pointer=ok keyboard-aria=ok engine=ok undo=ok resign=result restart=ok replay=ok analysis=ok tutorial=complete+skip variation=both-sides+undo+redo+reset+cancel+apply-first side=red+black");
     await engine?.stop();
     mainWindow?.close();
     await closeWebServer();
@@ -1023,12 +1179,16 @@ async function runFriendRoomUiSmokeTest() {
       showScreen('home');
       const prior = await window.ninepalace.getState();
       const button = document.querySelector('[data-action="create-room"]');
+      const friends = document.querySelector('[data-action="friend-menu"]');
       if (!button) throw new Error('首页缺少创建好友房入口');
+      friends.click();
+      if (!friendMenuDialog.open) throw new Error('好友对局菜单没有打开');
       button.click();
       const dialog = document.querySelector('#room-create-dialog');
       if (!dialog.open) throw new Error('创建好友房时未显示选边窗口');
       dialog.querySelector('button[type="submit"]').click();
       if (dialog.open || (await window.ninepalace.getState()).roomCode !== prior.roomCode) throw new Error('取消选边仍创建了房间');
+      friends.click();
       button.click();
       document.querySelector('#room-create-side').value = ${JSON.stringify(hostColor)};
       const submit = document.querySelector('#room-create-submit');
@@ -1166,6 +1326,7 @@ async function runFriendRoomUiSmokeTest() {
     await guestWindow.webContents.executeJavaScript(`(() => {
       showScreen('home');
       window.npI18n.setLanguage('en');
+      document.querySelector('[data-action="friend-menu"]').click();
       document.querySelector('[data-action="create-room"]').click();
       if (!document.querySelector('#room-create-dialog').open
         || document.querySelector('#room-create-title').textContent !== 'Create friend room') throw new Error('网页创建好友房窗口或英文文案缺失');
@@ -1203,9 +1364,10 @@ app.whenReady().then(async () => {
       const pwa = await mainWindow.webContents.executeJavaScript(`(async () => {
         if (!('serviceWorker' in navigator)) throw new Error('当前浏览器没有 Service Worker 支持');
         const registration = await navigator.serviceWorker.ready;
-        const cache = await caches.open('ninepalace-shell-v28');
-        const required = ['/', '/styles.css', '/lobby.css', '/match.css', '/renderer.js', '/i18n.js', '/character-select.js', '/settings.js', '/chinese-notation.js', '/manifest.webmanifest', '/assets/ninepalace-red-rook-girl.png', '/assets/ninepalace-red-horse-girl.png', '/assets/ninepalace-black-rook-loli.png', '/assets/ninepalace-black-horse-loli.png', '/vendor/xiangqi-js/xiangqi.js'];
+        const cache = await caches.open('ninepalace-shell-v54');
+        const required = ['/', '/styles.css', '/lobby.css', '/match.css', '/renderer.js', '/i18n.js', '/character-select.js', '/settings.js', '/chinese-notation.js', '/manifest.webmanifest', '/assets/ninepalace-red-rook-girl.png', '/assets/ninepalace-red-horse-white-tights.png', '/assets/ninepalace-black-rook-loli.png', '/assets/ninepalace-black-horse-adult.png', '/vendor/xiangqi-js/xiangqi.js'];
         required.push(...['red-rook', 'red-horse', 'black-rook', 'black-horse'].map(id => '/assets/ninepalace-hand-' + id + '.png'));
+        required.push('/assets/ninepalace-lobby-campus.png', '/assets/ninepalace-piece-border.svg', '/palace-castling.js', '/jieqi.js');
         const missing = [];
         for (const path of required) {
           if (!await cache.match(new URL(path, location.origin).href)) missing.push(path);

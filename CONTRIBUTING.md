@@ -1,23 +1,10 @@
 # 参与 NinePalace
 
-感谢你愿意帮助改进 NinePalace。当前项目处于本机验证阶段；公开协作前会先选定项目许可证、核清引擎/权重分发方式，并配置安全联系渠道。在这些事项完成前，请勿将当前仓库或 `dist/` 产物当作已获准公开分发的开源发行版。
+感谢你愿意帮助改进 NinePalace。欢迎提交可复现的问题报告、玩法反馈和代码改动。
 
 ## 本机开发
 
-需要 Windows x64 和 Node.js。首次安装依赖并运行桌面版：
-
-```powershell
-npm install
-npm start
-```
-
-完整对局需要本地 `vendor/pikafish` 引擎及权重。浏览器/PWA 开发使用：
-
-```powershell
-npm run web
-```
-
-保持服务进程运行，在本机浏览器打开 `http://127.0.0.1:4173/`。它只监听回环地址，不是公网服务器。
+按 [构建说明](./BUILD.md) 安装依赖、配置引擎并运行 Windows 或本机 Web 版。
 
 ## 提交前检查
 
@@ -40,7 +27,7 @@ Windows EXE 构建使用 `npm run build:win`。提交前请说明运行过的检
 
 ## 许可证与贡献者
 
-NinePalace 自身的项目许可证仍待维护者选择，仓库目前没有 `LICENSE` 文件。因此现阶段不能据此推断代码已获任何开放使用、修改或再分发许可。确定项目许可证和贡献条款之前，暂不接受可能被公开合并的外部代码贡献。第三方组件分别受其自身许可证约束；见 [VENDOR_NOTICES.md](./VENDOR_NOTICES.md)。
+NinePalace 自有代码和文档采用 [MIT 许可证](./LICENSE)。如果贡献中含有第三方内容，请在 PR 中标明来源和许可。[第三方组件与许可](./VENDOR_NOTICES.md)
 
 ## 行为与安全
 

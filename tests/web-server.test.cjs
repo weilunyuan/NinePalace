@@ -55,7 +55,10 @@ test("local web server serves the PWA shell and same-origin game API", async () 
   try {
     const shell = await fetch(`${baseUrl}/`);
     assert.equal(shell.status, 200);
-    assert.match(await shell.text(), /rel="manifest"/);
+    const html = await shell.text();
+    assert.match(html, /rel="manifest"/);
+    assert.match(html, /id="lobby-character"[^>]+ninepalace-red-rook-girl\.png/);
+    assert.doesNotMatch(html, /lobby-3d/);
 
     const manifestResponse = await fetch(`${baseUrl}/manifest.webmanifest`);
     assert.equal(manifestResponse.status, 200);
@@ -66,7 +69,12 @@ test("local web server serves the PWA shell and same-origin game API", async () 
 
     const worker = await fetch(`${baseUrl}/service-worker.js`);
     assert.equal(worker.status, 200);
-    assert.match(await worker.text(), /ninepalace-shell-v28/);
+    const workerScript = await worker.text();
+    assert.match(workerScript, /ninepalace-shell-v54/);
+    assert.match(workerScript, /jieqi\.js/);
+    assert.match(workerScript, /palace-castling\.js/);
+    assert.match(workerScript, /ninepalace-piece-border\.svg/);
+    assert.doesNotMatch(workerScript, /lobby-3d|characters-3d/);
     const lobbyStyles = await fetch(`${baseUrl}/lobby.css`);
     assert.equal(lobbyStyles.status, 200);
     assert.match(lobbyStyles.headers.get("content-type"), /text\/css/);
@@ -76,7 +84,12 @@ test("local web server serves the PWA shell and same-origin game API", async () 
     assert.equal((await fetch(`${baseUrl}/settings.js`)).status, 200);
     assert.equal((await fetch(`${baseUrl}/chinese-notation.js`)).status, 200);
     assert.equal((await fetch(`${baseUrl}/character-select.js`)).status, 200);
-    for (const character of ["red-rook-girl", "red-horse-girl", "black-rook-loli", "black-horse-loli"]) {
+    assert.equal((await fetch(`${baseUrl}/assets/characters-3d/red-rook.glb`)).status, 404);
+    assert.equal((await fetch(`${baseUrl}/assets/ninepalace-lobby-campus.png`)).status, 200);
+    const border = await fetch(`${baseUrl}/assets/ninepalace-piece-border.svg`);
+    assert.equal(border.status, 200);
+    assert.match(border.headers.get("content-type"), /image\/svg\+xml/);
+    for (const character of ["red-rook-girl", "red-horse-white-tights", "black-rook-loli", "black-horse-adult"]) {
       const portrait = await fetch(`${baseUrl}/assets/ninepalace-${character}.png`);
       assert.equal(portrait.status, 200, `${character} portrait should be served`);
       assert.equal(portrait.headers.get("content-type"), "image/png");

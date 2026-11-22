@@ -3,19 +3,19 @@
     zh: {
       pageTitle: "NinePalace · 九宫象棋",
       localBadge: "九宫 · 棋局", guest: "访客玩家",
-      lobbyAria: "游戏大厅", lobbyPlay: "对弈", lobbySolo: "人机练习", lobbyFriends: "好友对弈", lobbyTools: "教学与棋谱",
+      lobbyAria: "游戏大厅", lobbyMenu: "对局菜单", lobbySolo: "人机对局", lobbyFriends: "好友对局", characters: "角色",
       characterPickerAria: "选择你的红黑車馬棋友", characterPickerLabel: "同行棋友",
       redSideShort: "红方", blackSideShort: "黑方",
       chooseRedRook: "选择红方車棋友绯音", chooseRedHorse: "选择红方馬棋友朱羽", chooseBlackRook: "选择黑方車棋友墨铃", chooseBlackHorse: "选择黑方馬棋友玄芽",
       redRookName: "绯音", redHorseName: "朱羽", blackRookName: "墨铃", blackHorseName: "玄芽",
-      redRookRole: "红方 · 車", redHorseRole: "红方 · 馬", blackRookRole: "黑方 · 車", blackHorseRole: "黑方 · 馬",
-      redRookQuote: "“红方車阵在此，我来替你稳住主线。”", redHorseQuote: "“马走日！绕开正面，奇袭交给我。”", blackRookQuote: "“黑方車阵已经就位，请看我的守势。”", blackHorseQuote: "“我从斜线之外悄悄地跳过去啦！”",
+      redRookQuote: "“红方車阵在此，我来替你稳住主线。”", redHorseQuote: "“马走日！绕开正面，奇袭交给我。”", blackRookQuote: "“黑方車阵已经就位，请看我的守势。”", blackHorseQuote: "“沉住气。找准落点，一着就能打开局面。”",
       redRookAria: "红方車棋友：绯音", redHorseAria: "红方馬棋友：朱羽", blackRookAria: "黑方車棋友：墨铃", blackHorseAria: "黑方馬棋友：玄芽",
       heroCharacterLabel: "NINEPALACE · 象棋社棋友", heroCharacterQuote: "“和我一起下盘棋吧！”",
       companionLabel: "同行棋友",
-      startGame: "开始对局", tutorial: "新手教学", install: "安装 NinePalace",
+      startGame: "开始对局", tutorial: "新手教程", install: "安装 NinePalace", installButton: "安装", beginMatch: "开始",
       playerSideTitle: "执棋方", playRed: "红方 · 先手", playBlack: "黑方 · 后手",
       createRoom: "创建好友房", joinRoom: "加入好友房", roomEyebrow: "好友对局", joinRoomTitle: "加入好友房",
+      createLanRoom: "创建局域网房间", joinLanRoom: "加入局域网房间",
       roomCreateHelp: "红方先行；好友加入后自动执另一方。", closeRoomDialog: "关闭房间窗口",
       roomCodeLabel: "房间码", roomJoinHelp: "输入朋友分享的 6 位房间码。加入后此设备会保存重连凭据。",
       roomInviteTitle: "邀请好友加入", roomLinkLabel: "邀请链接", copyInviteLink: "复制邀请链接",
@@ -34,6 +34,11 @@
       remoteBusy: "中转服务繁忙，请稍后再试。", remoteRoomMissing: "找不到房间，请核对房间号。",
       remoteRoomFull: "房间已满。", remoteHostOffline: "房主暂时离线，请稍后重试。",
       remoteRoomClosed: "房间已关闭，可返回大厅重新开房。", remoteBadState: "房间同步失败，请重新开房。",
+      remoteUpdateRequired: "双方需要使用同一联机版本。", remoteRoomStarted: "对局已经开始。",
+      remoteChooseSeat: "请选择席位。", remoteConfirmSeat: "选好后点击确定。", remoteSeatTaken: "这个席位已被好友选中。",
+      remoteBothConfirm: "双方都确认后，房主才能开始。", remoteWaitConfirm: "等待好友确认…",
+      remoteWaitHost: "等待房主开始…", remoteReadyStart: "双方已确认，可以开始。", remotePeerOffline: "好友暂时离线，正在等待重连…",
+      seatEmpty: "空席", seatYou: "你", seatFriend: "好友", seatConfirm: "确定", seatConfirmed: "已确认",
       remoteMoveOffline: "连接中断后暂时无法落子。",
       roomYourTurn: "轮到你走", roomYourRed: "红方 · 你", roomYourBlack: "黑方 · 你",
       blackSide: "黑方",
@@ -74,8 +79,7 @@
       resultLoss: "{engine} 获胜", resultDraw: "本局和棋", playAgain: "再来一局",
       scoreWin: "访客玩家 <strong>获胜</strong> · {engine}", scoreLoss: "访客玩家 · <strong>{engine} 获胜</strong>",
       scoreDraw: "访客玩家 <strong>· 和棋 ·</strong> {engine}", footer: "NINEPALACE · 本地对弈验证版 · v0.1",
-      switchToEnglish: "切换到英文", switchToChinese: "Switch to Simplified Chinese",
-      settingsOpen: "打开设置", settingsEyebrow: "偏好设置", settingsTitle: "偏好设置",
+      settingsOpen: "打开设置", settingsButton: "设置", settingsTitle: "偏好设置", playerIdentity: "玩家身份", languageTitle: "界面语言",
       engineTitle: "对弈引擎", engineHelp: "Pikafish 为默认选项；切换后应用于新对局。Fairy-Stockfish 引擎为 GPLv3，内置象棋网络为 CC0。",
       enginePikafish: "Pikafish（默认）", engineFairy: "Fairy-Stockfish（引擎 GPLv3 / 网络 CC0）",
       difficultyTitle: "人机难度", difficultyHelp: "练习和轻松会主动选择较弱着法；标准与较强会尽量走好。默认从练习开始。",
@@ -103,9 +107,32 @@
       tutorialDoneProgress: "入门教学 · 已完成", tutorialDoneTitle: "现在可以自由对弈了",
       tutorialDoneCopy: "将死对方将帅即可获胜；对方无合法着法时也判负。着法会记录在右侧，悔棋会撤回一个完整回合。",
       skipTutorial: "跳过教学", finishTutorial: "结束教学",
-      historyButton: "最近棋谱", historyEyebrow: "本地对局", historyTitle: "最近棋谱",
+      entertainmentMode: "娱乐模式", castlingTitle: "王车易位", castlingDrawTitle: "开局抽签",
+      practiceVariant: "玩法", standardVariant: "标准象棋", jieqiTitle: "揭棋", jieqiAI: "揭棋 AI",
+      jieqiCovered: "暗子", jieqiCoveredRole: "暗子（{role}位）",
+      jieqiIntro: "将帅明置，其余棋子各自洗牌盖放。",
+      jieqiFirstMove: "暗子按原位走第一步，落子后翻开。",
+      jieqiOpenRule: "翻开后照真实棋子走，明相能过河，明士能出九宫。",
+      jieqiCaptureRule: "吃掉暗子时，只有吃子的一方能看到它是什么。",
+      jieqiReveal: "揭出{piece}", jieqiCapture: "暗吃{piece}", jieqiHiddenCapture: "吃掉暗子",
+      jieqiThinking: "揭棋 AI 正在思考…", jieqiReplay: "用箭头逐手回放揭棋棋谱和翻子。",
+      castlingIntro: "双方选边并确定后，开局各抽两枚变身棋子。",
+      castlingHorse: "跃马", castlingHorseRule: "跃马免蹩马腿。",
+      castlingElephant: "斜象", castlingElephantRule: "斜象沿斜线走，可以过河，遇子挡路。",
+      castlingGuard: "护卫", castlingGuardRule: "护卫向八方走一格，可以出九宫。",
+      castlingQueen: "短后", castlingQueenRule: "短后直走或斜走最多三格，遇子挡路，吃子无需炮架。",
+      castlingKingRule: "每方可短易位一次。将帅和参与的车都须未动过，两子之间清空，将帅的起点和落点都须安全。",
+      castlingGuide: "选中将帅，再点亮起的角车即可短易位。", castlingTarget: "可与此车易位",
+      castlingLeft: "王车易位（左）", castlingRight: "王车易位（右）", castlingCard: "{file}路 {name}",
+      castlingDesktop: "请在 NinePalace Windows 客户端开房或加入。", castlingReplay: "使用箭头逐手回放王车易位棋谱。",
+      accountTitle: "账户", backToAccount: "← 返回账户", accountStatistics: "对局统计",
+      accountScope: "统计本机已记录的对局", accountWinRate: "胜率", accountTotal: "总局数",
+      accountWins: "胜局", accountDraws: "和局", accountLosses: "负局",
+      accountMates: "杀法统计", accountMate: "杀法", accountMyMates: "我方达成", accountOpponentMates: "对手达成",
+      accountMatesEmpty: "有将死的对局后，这里会按杀法统计。", accountOtherMate: "其他将死",
+      historyTitle: "最近棋谱",
       historyEmpty: "还没有保存的对局。完成一盘后，棋谱会保存在这台设备上。",
-      historyRecord: "{count} 手 · {date}", backToHistory: "← 返回棋谱",
+      historyRecord: "{count} 手 · {date}",
       replayEyebrow: "复盘 · 本地棋谱", replayTitle: "棋谱回放", replayResult: "对局结果",
       replayMovesTitle: "着法", replayBoardLabel: "棋谱回放棋盘", replayFirst: "跳到开局",
       replayPrevious: "上一步", replayNext: "下一步", replayLast: "跳到结束",
@@ -130,19 +157,19 @@
     en: {
       pageTitle: "NinePalace · Xiangqi",
       localBadge: "Local practice", guest: "Guest player",
-      lobbyAria: "Game lobby", lobbyPlay: "Play", lobbySolo: "SOLO PRACTICE", lobbyFriends: "Play with friends", lobbyTools: "Lessons and game records",
+      lobbyAria: "Game lobby", lobbyMenu: "Game menu", lobbySolo: "Play vs engine", lobbyFriends: "Play with friends", characters: "Characters",
       characterPickerAria: "Choose a red or black rook or horse buddy", characterPickerLabel: "Companions",
       redSideShort: "RED", blackSideShort: "BLACK",
       chooseRedRook: "Choose Hina, the red rook buddy", chooseRedHorse: "Choose Akane, the red horse buddy", chooseBlackRook: "Choose Suzu, the black rook buddy", chooseBlackHorse: "Choose Nagi, the black horse buddy",
       redRookName: "Hina", redHorseName: "Akane", blackRookName: "Suzu", blackHorseName: "Nagi",
-      redRookRole: "RED · CHARIOT", redHorseRole: "RED · HORSE", blackRookRole: "BLACK · CHARIOT", blackHorseRole: "BLACK · HORSE",
-      redRookQuote: "“The red rook line is set. I'll hold the center.”", redHorseQuote: "“The horse moves in an L—I'll find a clever route!”", blackRookQuote: "“The black rook is in place. Let's keep our guard.”", blackHorseQuote: "“I'll hop in from beyond the diagonal!”",
+      redRookQuote: "“The red rook line is set. I'll hold the center.”", redHorseQuote: "“The horse moves in an L—I'll find a clever route!”", blackRookQuote: "“The black rook is in place. Let's keep our guard.”", blackHorseQuote: "“Stay composed. One well-placed move can open up the game.”",
       redRookAria: "Red rook buddy: Hina", redHorseAria: "Red horse buddy: Akane", blackRookAria: "Black rook buddy: Suzu", blackHorseAria: "Black horse buddy: Nagi",
       heroCharacterLabel: "YOUR XIANGQI CLUB BUDDY", heroCharacterQuote: "“Let's play a game together!”",
       companionLabel: "COMPANION",
-      startGame: "Play vs engine", tutorial: "How to play", install: "Install NinePalace",
+      startGame: "Play vs engine", tutorial: "How to play", install: "Install NinePalace", installButton: "Install", beginMatch: "Start",
       playerSideTitle: "Your side", playRed: "Red · First", playBlack: "Black · Second",
       createRoom: "Create friend room", joinRoom: "Join friend room", roomEyebrow: "Friend match", joinRoomTitle: "Join a friend room",
+      createLanRoom: "Create LAN room", joinLanRoom: "Join LAN room",
       roomCreateHelp: "Red moves first. Your friend automatically takes the other side.", closeRoomDialog: "Close room dialog",
       roomCodeLabel: "Room code", roomJoinHelp: "Enter the 6-character code your friend shared. This device saves a reconnect token.",
       roomInviteTitle: "Invite a friend", roomLinkLabel: "Invite link", copyInviteLink: "Copy invite link",
@@ -161,6 +188,11 @@
       remoteBusy: "The relay is busy. Try again shortly.", remoteRoomMissing: "Room not found. Check the code.",
       remoteRoomFull: "The room is full.", remoteHostOffline: "The host is offline. Try again shortly.",
       remoteRoomClosed: "The room has closed. Return to the lobby to start another game.", remoteBadState: "Could not sync the room. Create a new room to continue.",
+      remoteUpdateRequired: "Both players need the same remote play version.", remoteRoomStarted: "The game has already started.",
+      remoteChooseSeat: "Choose a seat.", remoteConfirmSeat: "Confirm your seat.", remoteSeatTaken: "Your friend has chosen that seat.",
+      remoteBothConfirm: "Both players must confirm before the host can start.", remoteWaitConfirm: "Waiting for your friend to confirm…",
+      remoteWaitHost: "Waiting for the host to start…", remoteReadyStart: "Both players are ready.", remotePeerOffline: "Your friend is reconnecting…",
+      seatEmpty: "Open seat", seatYou: "You", seatFriend: "Friend", seatConfirm: "Confirm", seatConfirmed: "Confirmed",
       remoteMoveOffline: "Moves are paused while the connection is down.",
       roomYourTurn: "Your move", roomYourRed: "Red · You", roomYourBlack: "Black · You",
       blackSide: "Black",
@@ -201,8 +233,7 @@
       resultLoss: "{engine} wins", resultDraw: "Draw", playAgain: "Play again",
       scoreWin: "<strong>Guest player wins</strong> · {engine}", scoreLoss: "Guest player · <strong>{engine} wins</strong>",
       scoreDraw: "Guest player <strong>· Draw ·</strong> {engine}", footer: "NINEPALACE · Local playtest · v0.1",
-      switchToEnglish: "Switch to English", switchToChinese: "切换到简体中文",
-      settingsOpen: "Open settings", settingsEyebrow: "Preferences", settingsTitle: "Preferences",
+      settingsOpen: "Open settings", settingsButton: "Settings", settingsTitle: "Preferences", playerIdentity: "Player", languageTitle: "Language",
       engineTitle: "Playing engine", engineHelp: "Pikafish is the default; the choice applies to new games. Fairy-Stockfish is GPLv3; its bundled Xiangqi network is CC0.",
       enginePikafish: "Pikafish (default)", engineFairy: "Fairy-Stockfish (GPLv3 engine / CC0 network)",
       difficultyTitle: "AI difficulty", difficultyHelp: "Practice and Relaxed deliberately choose weaker moves; Standard and Strong aim for the best move. Start at Practice.",
@@ -230,9 +261,32 @@
       tutorialDoneProgress: "Quick guide · Complete", tutorialDoneTitle: "You are ready to play",
       tutorialDoneCopy: "Checkmate the opposing general to win; a side with no legal moves also loses. Moves are recorded on the right, and Undo takes back a complete turn.",
       skipTutorial: "Skip guide", finishTutorial: "Finish guide",
-      historyButton: "Recent games", historyEyebrow: "Local records", historyTitle: "Recent games",
+      entertainmentMode: "Casual mode", castlingTitle: "Palace Castling", castlingDrawTitle: "Opening draw",
+      practiceVariant: "Game type", standardVariant: "Standard Xiangqi", jieqiTitle: "Jieqi", jieqiAI: "Jieqi AI",
+      jieqiCovered: "Covered pieces", jieqiCoveredRole: "Covered piece ({role} starting square)",
+      jieqiIntro: "Both generals are face up. Each side shuffles its other pieces and places them face down.",
+      jieqiFirstMove: "A covered piece moves as its starting role, then turns face up.",
+      jieqiOpenRule: "Revealed pieces move as themselves. Elephants may cross the river and advisors may leave the palace.",
+      jieqiCaptureRule: "Only the capturing player sees the face of a captured covered piece.",
+      jieqiReveal: "Revealed {piece}", jieqiCapture: "Captured covered {piece}", jieqiHiddenCapture: "Captured a covered piece",
+      jieqiThinking: "Jieqi AI is thinking…", jieqiReplay: "Use the arrows to replay the moves and reveals.",
+      castlingIntro: "Once both players confirm their seats, two pieces per side gain new moves.",
+      castlingHorse: "Leaping horse", castlingHorseRule: "A leaping horse jumps over blockers.",
+      castlingElephant: "Diagonal elephant", castlingElephantRule: "A diagonal elephant slides along clear diagonals and may cross the river.",
+      castlingGuard: "Guard", castlingGuardRule: "A guard steps one square in any direction and may leave the palace.",
+      castlingQueen: "Short queen", castlingQueenRule: "A short queen slides up to three squares in any direction and captures directly.",
+      castlingKingRule: "Castle once per side with an unmoved general and chariot, a clear path, and a safe starting and landing square for the general.",
+      castlingGuide: "Select your general, then select a highlighted corner chariot to castle.", castlingTarget: "Available for castling",
+      castlingLeft: "Castle left", castlingRight: "Castle right", castlingCard: "File {file} · {name}",
+      castlingDesktop: "Open or join this room in NinePalace for Windows.", castlingReplay: "Use the arrows to replay this Palace Castling game.",
+      accountTitle: "Account", backToAccount: "← Back to account", accountStatistics: "Game statistics",
+      accountScope: "Based on games recorded on this device", accountWinRate: "Win rate", accountTotal: "Played",
+      accountWins: "Won", accountDraws: "Drawn", accountLosses: "Lost",
+      accountMates: "Checkmate statistics", accountMate: "Pattern", accountMyMates: "You", accountOpponentMates: "Opponent",
+      accountMatesEmpty: "Patterns will appear after a game ends in checkmate.", accountOtherMate: "Other checkmates",
+      historyTitle: "Recent games",
       historyEmpty: "No saved games yet. Finish a game and its record will be saved on this device.",
-      historyRecord: "{count} moves · {date}", backToHistory: "← Back to records",
+      historyRecord: "{count} moves · {date}",
       replayEyebrow: "Review · Local record", replayTitle: "Game replay", replayResult: "Game result",
       replayMovesTitle: "Moves", replayBoardLabel: "Game replay board", replayFirst: "Go to start",
       replayPrevious: "Previous move", replayNext: "Next move", replayLast: "Go to end",
@@ -256,6 +310,7 @@
     },
   };
 
+  const languageSelect = document.querySelector("#language-setting");
   let language = "zh";
   try {
     language = localStorage.getItem("ninepalace.preferences.language") === "en" ? "en" : "zh";
@@ -278,12 +333,7 @@
     document.querySelectorAll("[data-i18n-aria]").forEach((node) => {
       node.setAttribute("aria-label", t(node.dataset.i18nAria));
     });
-    const toggle = document.querySelector("#language-toggle");
-    if (toggle) {
-      toggle.textContent = language === "zh" ? "EN" : "中文";
-      toggle.setAttribute("aria-label", t(language === "zh" ? "switchToEnglish" : "switchToChinese"));
-      toggle.setAttribute("title", t(language === "zh" ? "switchToEnglish" : "switchToChinese"));
-    }
+    languageSelect.value = language;
   }
 
   function setLanguage(nextLanguage) {
@@ -304,6 +354,7 @@
       "房间已创建，等待朋友加入": "roomWaiting",
       "等待对方走棋": "roomWaitingTurn",
       "轮到你走": "roomYourTurn",
+      "揭棋 AI 正在思考…": "jieqiThinking",
       "黑方认输": "resignBlack",
       "红方认输": "resignRed",
       "目前没有可悔的完整回合": "toastUndo",
@@ -329,7 +380,5 @@
 
   window.npI18n = { t, setLanguage, getLanguage: () => language, applyStatic, localizeStatus, pieceName };
   applyStatic();
-  document.querySelector("#language-toggle").addEventListener("click", () => {
-    setLanguage(language === "zh" ? "en" : "zh");
-  });
+  languageSelect.addEventListener("change", () => setLanguage(languageSelect.value));
 })();

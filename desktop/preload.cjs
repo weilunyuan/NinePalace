@@ -2,7 +2,7 @@ const { contextBridge, ipcRenderer } = require("electron");
 
 contextBridge.exposeInMainWorld("ninepalace", {
   getState: () => ipcRenderer.invoke("game:get-state"),
-  startGame: (engineId, playerColor, difficulty) => ipcRenderer.invoke("game:start", engineId, playerColor, difficulty),
+  startGame: (engineId, playerColor, difficulty, variant) => ipcRenderer.invoke("game:start", engineId, playerColor, difficulty, variant),
   getLegalMoves: (square) => ipcRenderer.invoke("game:get-legal-moves", square),
   submitMove: (move, difficulty) => ipcRenderer.invoke("game:move", move, difficulty),
   undo: () => ipcRenderer.invoke("game:undo"),
@@ -12,9 +12,10 @@ contextBridge.exposeInMainWorld("ninepalace", {
   createRoom: (playerColor) => ipcRenderer.invoke("room:create", playerColor),
   joinRoom: (code) => ipcRenderer.invoke("room:join", code),
   leaveRoom: () => ipcRenderer.invoke("room:leave"),
-  createRemoteRoom: (playerColor) => ipcRenderer.invoke("remote:create", playerColor),
+  createRemoteRoom: (variant) => ipcRenderer.invoke("remote:create", variant),
   joinRemoteRoom: (code) => ipcRenderer.invoke("remote:join", code),
   cancelRemoteRoom: () => ipcRenderer.invoke("remote:cancel"),
+  remoteLobbyAction: (action, side) => ipcRenderer.invoke("remote:lobby-action", action, side),
   onState: (listener) => {
     const handler = (_event, state) => listener(state);
     ipcRenderer.on("game:state", handler);

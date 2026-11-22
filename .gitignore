@@ -26,3 +26,8 @@ desktop/assets/ninepalace-rook-character.png
 desktop/assets/ninepalace-cannon-character.png
 desktop/assets/ninepalace-pawn-character.png
 desktop/assets/ninepalace-lobby-character.png
+
+# Optional local Cubism SDK runtime bundle.
+desktop/vendor/live2d/
+
+desktop/assets/lobby-3d.js

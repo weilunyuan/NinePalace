@@ -14,7 +14,8 @@ function detectMatingPattern(game) {
   const attackingPieces = pieces.filter((piece) => piece.color === attacker);
   const attackPosition = game.fen().split(" ");
   attackPosition[1] = attacker;
-  const attacks = new Xiangqi(attackPosition.join(" ")).moves({ verbose: true, legal: false })
+  const rules = { palaceCastling: game.palaceCastling, legacyCastling: game.legacyCastling, jieqi: game.jieqi };
+  const attacks = new Xiangqi(attackPosition.join(" "), rules).moves({ verbose: true, legal: false })
     .map((move) => ({ ...move, piece: move.piece.toLowerCase() }));
   const checkers = attacks.filter((move) => move.to === king.square);
   const between = (piece) => {
@@ -28,7 +29,7 @@ function detectMatingPattern(game) {
     return screens;
   };
   const essential = (piece) => {
-    const probe = new Xiangqi(game.fen());
+    const probe = new Xiangqi(game.fen(), rules);
     probe.remove(piece.square);
     return !probe.in_checkmate();
   };

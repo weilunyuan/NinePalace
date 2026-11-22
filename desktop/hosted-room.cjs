@@ -1,28 +1,35 @@
 const { randomBytes, randomInt } = require("node:crypto");
 const { once } = require("node:events");
 const { setTimeout: delay } = require("node:timers/promises");
+const { WebSocket } = require("ws");
 const { createRelayServer } = require("../relay/server.cjs");
 const { connectRemoteRoom } = require("./remote-room.cjs");
-const { remoteError } = require("./remote-protocol.cjs");
+const { MAX_MESSAGE_BYTES, relayAddress, remoteError } = require("./remote-protocol.cjs");
 const { publicRoomAddress, startRoomTunnel } = require("./room-tunnel.cjs");
 
-async function verifyPublicRoom(code, signal) {
-  const address = `${publicRoomAddress(code)}/health`;
-  for (let attempt = 0; attempt < 5; attempt += 1) {
+async function verifyPublicRoom(code, lobby, signal) {
+  const address = relayAddress(publicRoomAddress(code), lobby);
+  for (let attempt = 0; attempt < 6; attempt += 1) {
     signal.throwIfAborted();
+    const probeSignal = AbortSignal.any([signal, AbortSignal.timeout(2500)]);
+    const wire = new WebSocket(address, { handshakeTimeout: 2200, maxPayload: MAX_MESSAGE_BYTES, perMessageDeflate: false });
+    wire.on("error", () => {});
     try {
-      const response = await fetch(address, { redirect: "error", signal: AbortSignal.any([signal, AbortSignal.timeout(2000)]) });
-      const reachable = response.ok && response.headers.get("x-ninepalace-room") === code;
-      await response.body?.cancel();
-      if (reachable) return;
+      await once(wire, "open", { signal: probeSignal });
+      const reply = once(wire, "message", { signal: probeSignal });
+      wire.send(JSON.stringify({ type: "probe", code }));
+      const [raw, binary] = await reply;
+      const result = binary ? null : JSON.parse(raw.toString());
+      if (result?.type === "probe-ready" && result.code === code) return;
     } catch { signal.throwIfAborted(); }
-    await delay(400, undefined, { signal });
+    finally { wire.terminate(); }
+    if (attempt < 5) await delay(400, undefined, { signal });
   }
   throw remoteError("remoteTunnelUnavailable");
 }
 
-async function createHostedRemoteRoom({ color, onState, signal }) {
-  if (color !== "r" && color !== "b") throw remoteError("remoteBadSide");
+async function createHostedRemoteRoom({ color, lobby = false, variant, onState, signal }) {
+  if (!lobby && color !== "r" && color !== "b") throw remoteError("remoteBadSide");
   for (let attempt = 0; attempt < 4; attempt += 1) {
     signal.throwIfAborted();
     const code = String(randomInt(10_000, 100_000));
@@ -52,11 +59,11 @@ async function createHostedRemoteRoom({ color, onState, signal }) {
       relay.server.listen(0, "127.0.0.1");
       await listening;
       const port = relay.server.address().port;
-      room = connectRemoteRoom({ url: `http://127.0.0.1:${port}`, color, hostKey: key, onState, onEnd: stop });
+      room = connectRemoteRoom({ url: `http://127.0.0.1:${port}`, color, lobby, variant, hostKey: key, onState, onEnd: stop });
       await room.ready;
       tunnel = startRoomTunnel(code, port, signal, cancel);
       await tunnel.ready;
-      await verifyPublicRoom(code, signal);
+      await verifyPublicRoom(code, lobby, signal);
       return room;
     } catch (error) {
       cancel();

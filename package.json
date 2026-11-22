@@ -2,7 +2,8 @@
   "name": "ninepalace",
   "version": "0.1.0",
   "private": true,
-  "description": "中国象棋人机与局域网好友对弈原型",
+  "description": "中国象棋桌面游戏，支持人机、好友联机与变体玩法",
+  "license": "MIT",
   "author": "NinePalace contributors",
   "main": "desktop/main.cjs",
   "scripts": {
@@ -10,7 +11,7 @@
     "web": "electron . --web-server",
     "web:smoke": "electron . --web-ui-smoke-test",
     "relay": "node relay/server.cjs",
-    "test": "node --test",
+    "test": "node --test tests/*.test.cjs",
     "build:win": "electron-builder --win portable"
   },
   "devDependencies": {
@@ -29,13 +30,23 @@
       "!desktop/assets/ninepalace-cannon-character.png",
       "!desktop/assets/ninepalace-pawn-character.png",
       "!desktop/assets/ninepalace-lobby-character.png",
+      "!desktop/assets/ninepalace-red-horse-girl.png",
+      "!desktop/assets/ninepalace-black-horse-loli.png",
       "!desktop/assets/*-draft.png",
+      "!desktop/assets/lobby-3d.js",
+      "!desktop/assets/characters-3d/**/*",
+      "!desktop/lobby-models.cjs",
+      "!desktop/vendor/live2d/**/*",
       "relay/server.cjs",
       "vendor/xiangqi-js/xiangqi.js",
       "vendor/xiangqi-js/LICENSE",
       "package.json"
     ],
     "extraResources": [
+      {
+        "from": "LICENSE",
+        "to": "LICENSE"
+      },
       {
         "from": "VENDOR_NOTICES.md",
         "to": "VENDOR_NOTICES.md"
@@ -56,6 +67,7 @@
         "to": "fairy-stockfish",
         "filter": [
           "fairy-stockfish.exe",
+          "palace-castling.ini",
           "Copying.txt",
           "README.md"
         ]

@@ -1,7 +1,15 @@
 const { createServer } = require("node:http");
 const { randomInt, randomBytes } = require("node:crypto");
 const { WebSocket, WebSocketServer } = require("ws");
-const { RELAY_PATH, ROOM_CODE, SESSION_TOKEN, MAX_MESSAGE_BYTES, RECONNECT_MS } = require("../desktop/remote-protocol.cjs");
+const { RELAY_PATH, LOBBY_RELAY_PATH, ROOM_CODE, SESSION_TOKEN, MAX_MESSAGE_BYTES, RECONNECT_MS } = require("../desktop/remote-protocol.cjs");
+const { variant: CASTLING_VARIANT } = require("../desktop/palace-castling.js");
+const { variant: JIEQI_VARIANT } = require("../desktop/jieqi.js");
+const ROOM_VARIANTS = new Set([CASTLING_VARIANT, JIEQI_VARIANT]);
+
+function supportsVariant(message, variant) {
+  if (!variant) return true;
+  return (variant === JIEQI_VARIANT ? message.supportsJieqi : message.supportsCastling) === variant;
+}
 
 const ROOM_LIMIT = 100;
 const MINUTE = 60_000;
@@ -35,6 +43,14 @@ function createRelayServer({ reconnectMs = RECONNECT_MS, heartbeatMs = 12_000, h
     }
   }
 
+  function publishLobby(room) {
+    if (!room.lobby) return;
+    const info = seat => ({ side: seat?.side ?? null, confirmed: Boolean(seat?.confirmed), online: seat?.socket?.readyState === WebSocket.OPEN });
+    const state = { type: "lobby", host: info(room.host), guest: info(room.guest), started: room.started };
+    send(room.host?.socket, state);
+    send(room.guest?.socket, state);
+  }
+
   function sweep(now) {
     for (const room of rooms.values()) {
       if ([room.host, room.guest].some(seat => seat && !seat.socket && seat.expiresAt <= now)) finish(room);
@@ -56,7 +72,7 @@ function createRelayServer({ reconnectMs = RECONNECT_MS, heartbeatMs = 12_000, h
   }
 
   server.on("upgrade", (request, socket, head) => {
-    if (request.url !== RELAY_PATH || request.headers.origin || sockets.clients.size >= ROOM_LIMIT * 3) {
+    if (![RELAY_PATH, LOBBY_RELAY_PATH].includes(request.url) || request.headers.origin || sockets.clients.size >= ROOM_LIMIT * 3) {
       socket.destroy();
       return;
     }
@@ -65,6 +81,7 @@ function createRelayServer({ reconnectMs = RECONNECT_MS, heartbeatMs = 12_000, h
 
   sockets.on("connection", (socket, request) => {
     const address = request.socket.remoteAddress || "unknown";
+    const lobby = request.url === LOBBY_RELAY_PATH;
     let room;
     let role;
     let messageWindow = Date.now();
@@ -82,12 +99,38 @@ function createRelayServer({ reconnectMs = RECONNECT_MS, heartbeatMs = 12_000, h
       clearTimeout(handshake);
       room = target;
       role = seatRole;
-      const seat = room[role] ||= { token: randomBytes(24).toString("base64url") };
+      const seat = room[role] ||= { token: randomBytes(24).toString("base64url"), side: null, confirmed: false };
       const oldSocket = seat.socket;
       seat.socket = socket;
       oldSocket?.close(1008);
-      send(socket, { type: "ready", code: room.code, role, token: seat.token, peerOnline: peer()?.socket?.readyState === WebSocket.OPEN });
+      send(socket, { type: "ready", code: room.code, role, token: seat.token, peerOnline: peer()?.socket?.readyState === WebSocket.OPEN, variant: room.variant });
+      publishLobby(room);
       send(peer()?.socket, { type: "presence", online: true });
+    }
+
+    function changeLobby(message) {
+      const { id, action, side } = message;
+      if (!Number.isSafeInteger(id) || id < 1) return socket.close(1008);
+      const reply = error => send(socket, { type: "reply", id, ok: !error, error });
+      if (room.started) return reply("remoteRoomStarted");
+      const seat = room[role];
+      if (action === "select") {
+        if (side !== null && side !== "r" && side !== "b") return reply("remoteBadSide");
+        if (side && peer()?.side === side) return reply("remoteSeatTaken");
+        if (seat.side !== side) {
+          seat.side = side;
+          seat.confirmed = false;
+        }
+      } else if (action === "confirm") {
+        if (!seat.side || seat.side !== side) return reply("remoteChooseSeat");
+        seat.confirmed = true;
+      } else if (action === "start") {
+        if (role !== "host" || !seat.confirmed || !room.guest?.confirmed || !seat.side || !room.guest.side
+          || seat.side === room.guest.side || room.guest.socket?.readyState !== WebSocket.OPEN) return reply("remoteBothConfirm");
+        room.started = true;
+      } else return socket.close(1008);
+      publishLobby(room);
+      reply();
     }
 
     socket.on("pong", () => { socket.isAlive = true; });
@@ -98,6 +141,7 @@ function createRelayServer({ reconnectMs = RECONNECT_MS, heartbeatMs = 12_000, h
       room[role].socket = null;
       room[role].expiresAt = Date.now() + reconnectMs;
       send(peer()?.socket, { type: "presence", online: false });
+      if (!room.started) publishLobby(room);
     });
     socket.on("message", (data, binary) => {
       const now = Date.now();
@@ -111,6 +155,8 @@ function createRelayServer({ reconnectMs = RECONNECT_MS, heartbeatMs = 12_000, h
       if (room) {
         if (rooms.get(room.code) !== room || room[role].socket !== socket) return;
         if (message.type === "leave") return finish(room);
+        if (room.lobby && message.type === "lobby-action") return changeLobby(message);
+        if (!room.started) return socket.close(1008);
         const allowed = role === "host" ? ["position", "reply"] : ["action"];
         if (!allowed.includes(message.type)) return socket.close(1008);
         send(peer()?.socket, message);
@@ -118,23 +164,34 @@ function createRelayServer({ reconnectMs = RECONNECT_MS, heartbeatMs = 12_000, h
       }
 
       sweep(now);
+      if (message.type === "probe") {
+        if (!mayConnect(address)) return error("remoteBusy");
+        const target = hostedRoom && message.code === hostedRoom.code && rooms.get(hostedRoom.code);
+        if (!target || target.lobby !== lobby || target.host?.socket?.readyState !== WebSocket.OPEN) return error("remoteRoomMissing");
+        send(socket, { type: "probe-ready", code: target.code });
+        return socket.close();
+      }
       if (message.type === "create") {
         if (!mayConnect(address) || rooms.size >= ROOM_LIMIT) return error("remoteBusy");
         if (hostedRoom && (rooms.size || message.hostKey !== hostedRoom.key)) return error("remoteBusy");
+        if (message.variant !== undefined && (!lobby || !ROOM_VARIANTS.has(message.variant))) return error("remoteUpdateRequired");
         let code = hostedRoom?.code;
         if (!code) {
           do { code = String(randomInt(10_000, 100_000)); } while (rooms.has(code));
         }
-        const created = { code, host: null, guest: null };
+        const created = { code, host: null, guest: null, lobby, started: !lobby, variant: message.variant };
         rooms.set(code, created);
         return attach(created, "host");
       }
 
       const target = typeof message.code === "string" && ROOM_CODE.test(message.code) && rooms.get(message.code);
       if (message.type === "resume") {
-        if (target && typeof message.token === "string" && SESSION_TOKEN.test(message.token)) {
+        if (target?.lobby === lobby && typeof message.token === "string" && SESSION_TOKEN.test(message.token)) {
           const seatRole = ["host", "guest"].find(name => target[name]?.token === message.token);
-          if (seatRole) return attach(target, seatRole);
+          if (seatRole) {
+            if (!supportsVariant(message, target.variant)) return error("remoteUpdateRequired");
+            return attach(target, seatRole);
+          }
         }
         if (!mayConnect(address)) return error("remoteBusy");
         return error("remoteRoomClosed");
@@ -142,6 +199,7 @@ function createRelayServer({ reconnectMs = RECONNECT_MS, heartbeatMs = 12_000, h
       if (message.type !== "join") return socket.close(1008);
       if (!mayConnect(address)) return error("remoteBusy");
       if (!target) return error("remoteRoomMissing");
+      if (target.lobby !== lobby || !supportsVariant(message, target.variant)) return error("remoteUpdateRequired");
       if (target.guest) return error("remoteRoomFull");
       if (target.host.socket?.readyState !== WebSocket.OPEN) return error("remoteHostOffline");
       attach(target, "guest");

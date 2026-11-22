@@ -134,10 +134,10 @@
         return lastState || offlineState(error.message || undefined);
       }
     },
-    async startGame(engineId, playerColor, difficulty) {
+    async startGame(engineId, playerColor, difficulty, variant) {
       try {
         storeRoomSession(null);
-        const state = await post("/api/start", { engineId, playerColor, difficulty });
+        const state = await post("/api/start", { engineId, playerColor, difficulty, variant });
         return publish(state);
       } catch (error) {
         return offlineState(`无法连接本地游戏服务：${error.message}。请先运行 npm run web。`);

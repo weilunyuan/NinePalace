@@ -4,36 +4,30 @@
     "red-rook": {
       image: "ninepalace-red-rook-girl.png",
       nameKey: "redRookName",
-      roleKey: "redRookRole",
       quoteKey: "redRookQuote",
       ariaKey: "redRookAria",
     },
     "red-horse": {
-      image: "ninepalace-red-horse-girl.png",
+      image: "ninepalace-red-horse-white-tights.png",
       nameKey: "redHorseName",
-      roleKey: "redHorseRole",
       quoteKey: "redHorseQuote",
       ariaKey: "redHorseAria",
     },
     "black-rook": {
       image: "ninepalace-black-rook-loli.png",
       nameKey: "blackRookName",
-      roleKey: "blackRookRole",
       quoteKey: "blackRookQuote",
       ariaKey: "blackRookAria",
     },
     "black-horse": {
-      image: "ninepalace-black-horse-loli.png",
+      image: "ninepalace-black-horse-adult.png",
       nameKey: "blackHorseName",
-      roleKey: "blackHorseRole",
       quoteKey: "blackHorseQuote",
       ariaKey: "blackHorseAria",
     },
   };
 
   const hero = document.querySelector("#lobby-character");
-  const heroRole = document.querySelector("#lobby-character-role");
-  const heroName = document.querySelector("#lobby-character-name");
   const heroQuote = document.querySelector("#lobby-character-quote");
   const companionCard = document.querySelector("#companion-card");
   const companionPortrait = document.querySelector("#companion-portrait");
@@ -48,8 +42,6 @@
     document.body.dataset.character = character;
     hero.src = imagePath;
     companionPortrait.src = imagePath;
-    heroRole.dataset.i18n = profile.roleKey;
-    heroName.dataset.i18n = profile.nameKey;
     heroQuote.dataset.i18n = profile.quoteKey;
     companionCard.dataset.i18nAria = profile.ariaKey;
     companionName.dataset.i18n = profile.nameKey;

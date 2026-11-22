@@ -1,6 +1,7 @@
 const { randomBytes, randomInt } = require("node:crypto");
 const { Xiangqi } = require("../vendor/xiangqi-js/xiangqi.js");
 const { resolveGameResult } = require("./game-rules.cjs");
+const { variant: JIEQI_VARIANT } = require("./jieqi.js");
 
 const ROOM_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 const ROOM_CODE_LENGTH = 6;
@@ -29,6 +30,7 @@ function friendRoomState(game, { roomCode, playerColor, players, phase, outcome 
     board: game.board(),
     turn: game.turn(),
     history: game.history(),
+    ...(game.jieqi ? { variant: JIEQI_VARIANT, jieqiLog: game.log(playerColor) } : {}),
     phase,
     status: phase === "waiting" ? "房间已创建，等待朋友加入"
       : phase === "finished" ? `${outcome.title} · ${outcome.reason}`
@@ -115,7 +117,7 @@ function createFriendRooms({ now = Date.now, makeCode = null, makeToken = null }
     room.outcome = friendRoomOutcome(winner, reason, pattern);
   }
 
-  function create(playerColor = "r") {
+  function create(playerColor = "r", game = new Xiangqi()) {
     if (playerColor !== "r" && playerColor !== "b") throw roomError(400, "请选择执红或执黑");
     cleanup();
     if (rooms.size >= MAX_ROOMS) throw roomError(503, "当前房间较多，请稍后再试");
@@ -129,7 +131,7 @@ function createFriendRooms({ now = Date.now, makeCode = null, makeToken = null }
     const token = newToken();
     const room = {
       code,
-      game: new Xiangqi(),
+      game,
       phase: "waiting",
       outcome: null,
       revision: 0,
